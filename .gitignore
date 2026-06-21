@@ -1,0 +1,24 @@
+# Local
+application-local.properties
+help.md
+
+# Maven build output
+target/
+*.class
+*.jar
+*.war
+.github/
+
+# IDE
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Environment
+.env
