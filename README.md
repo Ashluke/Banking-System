@@ -6,11 +6,11 @@ A fully featured banking REST API built with Spring Boot, featuring JWT authenti
 
 ## Live Demo
 
-> **Frontend:** `coming soon`
+> **Frontend:** `coming soon` — built with Vite + React *(in progress)*
 >
 > **API Docs (Swagger UI):** `coming soon`
 > 
-> **Base URL:** `coming soon` — built with Vite + React *(in progress)*
+> **Base URL:** `coming soon`
 
 ---
 
