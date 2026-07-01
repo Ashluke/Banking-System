@@ -232,16 +232,38 @@ uvicorn main:app --reload
 
 ## Running Tests
 
-### Banking API
+### Prerequisites
+
+The Banking API test suite uses an H2 in-memory database, so **MySQL is not required**.
+
+However, the **Analytics Microservice must be running** before executing the Banking API tests because the loan application flow sends HTTP requests to it.
+
+### 1. Start the Analytics Microservice
+
+```bash
+cd analytics
+uvicorn main:app --reload
+```
+
+Leave this terminal running.
+
+### 2. Run the Banking API Tests
+
+Open a new terminal:
+
 ```bash
 ./mvnw test
 ```
 
-Tests use an H2 in-memory database and do not require MySQL to be running.
+---
 
-### Analytics Microservice
+## Running Analytics Microservice Tests
+
+Open another terminal:
+
 ```bash
-pytest
+cd analytics
+python -m pytest
 ```
 
 ---
