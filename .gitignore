@@ -1,24 +1,59 @@
-# Local
+# ========================
+# Java / Spring Boot
+# ========================
+
+# Local config
 application-local.properties
-help.md
 
 # Maven build output
 target/
 *.class
 *.jar
 *.war
+
+# ========================
+# Python / FastAPI
+# ========================
+
+# Byte cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# ========================
+# IDE
+# ========================
+.vscode/
+.idea/
+
+# ========================
+# CI / GitHub
+# ========================
 .github/
 
-# IDE
-.vscode/
-
+# ========================
 # OS files
+# ========================
 .DS_Store
 Thumbs.db
 
+# ========================
 # Logs
+# ========================
 *.log
 logs/
 
+# ========================
 # Environment
+# ========================
 .env
+
+# ========================
+# Misc
+# ========================
+help.md
