@@ -13,12 +13,16 @@ import com.banking.system.model.entities.Transaction;
 import com.banking.system.model.enums.TransactionType;
 import com.banking.system.repository.BankAccountRepository;
 import com.banking.system.repository.TransactionRepository;
+import com.banking.system.specification.TransactionSpecification;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Service
@@ -28,7 +32,9 @@ public class TransactionService {
     private final TransactionRepository transactionRepository;
     private final BankAccountService bankAccountService;
 
-    public TransactionService(BankAccountRepository bankAccountRepository, TransactionRepository transactionRepository, BankAccountService bankAccountService) {
+    public TransactionService(BankAccountRepository bankAccountRepository,
+            TransactionRepository transactionRepository,
+            BankAccountService bankAccountService) {
         this.bankAccountRepository = bankAccountRepository;
         this.transactionRepository = transactionRepository;
         this.bankAccountService = bankAccountService;
@@ -50,7 +56,7 @@ public class TransactionService {
         Transaction tx = new Transaction(
             savedAccount,
             request.getAmount(),
-            TransactionType.DEPOSIT 
+            TransactionType.DEPOSIT
         );
 
         Transaction savedTx = transactionRepository.save(tx);
@@ -138,17 +144,34 @@ public class TransactionService {
         return mapToResponse(fromTx);
     }
 
-    // Get transactions by id
-    public Page<TransactionResponseDto> getByAccountId(Long accountId, Long appUserId, boolean isAdmin, Pageable pageable) {
+    // Get transactions by account id with filters
+    public Page<TransactionResponseDto> getByAccountId(
+            Long accountId,
+            Long appUserId,
+            boolean isAdmin,
+            TransactionType type,
+            LocalDateTime from,
+            LocalDateTime to,
+            BigDecimal minAmount,
+            BigDecimal maxAmount,
+            Pageable pageable) {
 
         BankAccount account = bankAccountRepository.findById(accountId).orElseThrow(() -> 
             new ResourceNotFoundException("Account not found"));
 
-        if(!isAdmin && !account.getUser().getAppUser().getId().equals(appUserId)) {
+        if (!isAdmin && !account.getUser().getAppUser().getId().equals(appUserId)) {
             throw new UnauthorizedActionException("You do not own this account");
         }
 
-        return transactionRepository.findByBankAccount_Id(accountId, pageable)
+        Specification<Transaction> spec = Specification
+            .where(TransactionSpecification.hasAccountId(accountId))
+            .and(TransactionSpecification.hasType(type))
+            .and(TransactionSpecification.afterDate(from))
+            .and(TransactionSpecification.beforeDate(to))
+            .and(TransactionSpecification.minAmount(minAmount))
+            .and(TransactionSpecification.maxAmount(maxAmount));
+
+        return transactionRepository.findAll(spec, pageable)
             .map(this::mapToResponse);
     }
 

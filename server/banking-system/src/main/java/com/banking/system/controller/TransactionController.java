@@ -4,6 +4,7 @@ import com.banking.system.dto.request.DepositRequestDto;
 import com.banking.system.dto.request.TransferRequestDto;
 import com.banking.system.dto.request.WithdrawRequestDto;
 import com.banking.system.dto.response.TransactionResponseDto;
+import com.banking.system.model.enums.TransactionType;
 import com.banking.system.security.SecurityUtil;
 import com.banking.system.services.TransactionService;
 
@@ -11,9 +12,13 @@ import jakarta.validation.Valid;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 @RestController
 @RequestMapping("/api/transactions")
@@ -48,11 +53,24 @@ public class TransactionController {
 
     @PreAuthorize("hasAnyRole('USER','ADMIN')")
     @GetMapping("/account/{accountId}")
-    public Page<TransactionResponseDto> getByAccountId(@PathVariable Long accountId, Pageable pageable) {
+    public Page<TransactionResponseDto> getByAccountId(
+            @PathVariable Long accountId,
+            @RequestParam(required = false) TransactionType type,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to,
+            @RequestParam(required = false) BigDecimal minAmount,
+            @RequestParam(required = false) BigDecimal maxAmount,
+            Pageable pageable) {
 
         Long appUserId = SecurityUtil.getCurrentUserId();
         boolean isAdmin = SecurityUtil.isAdmin();
 
-        return transactionService.getByAccountId(accountId, appUserId, isAdmin, pageable);
+        return transactionService.getByAccountId(
+            accountId, appUserId, isAdmin,
+            type, from, to, minAmount, maxAmount,
+            pageable
+        );
     }
 }

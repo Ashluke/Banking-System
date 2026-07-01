@@ -13,7 +13,7 @@ public class OpenApiConfig {
         return new OpenAPI()
             .info(new Info()
                 .title("Banking System API")
-                .version("1.0.0")
+                .version("2.1.0")
                 .description("REST API for a banking system with user management, accounts, and transactions")
             );
     }

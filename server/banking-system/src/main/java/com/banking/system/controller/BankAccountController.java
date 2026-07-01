@@ -2,6 +2,7 @@ package com.banking.system.controller;
 
 import com.banking.system.dto.request.BankAccountCreateRequestDto;
 import com.banking.system.dto.response.BankAccountResponseDto;
+import com.banking.system.model.enums.AccountStatus;
 import com.banking.system.services.BankAccountService;
 import com.banking.system.security.SecurityUtil;
 
@@ -40,14 +41,26 @@ public class BankAccountController {
         Long appUserId = SecurityUtil.getCurrentUserId();
         boolean isAdmin = SecurityUtil.isAdmin();
 
-
         return bankAccountService.getBankAccountById(id, appUserId, isAdmin);
+    }
+
+    @PreAuthorize("hasRole('ADMIN')")
+    @GetMapping
+    public Page<BankAccountResponseDto> getAll(
+            @RequestParam(required = false) AccountStatus status,
+            Pageable pageable) {
+
+        return bankAccountService.getAllAccounts(status, pageable);
     }
 
     @PreAuthorize("hasAnyRole('USER','ADMIN')")
     @GetMapping("/users/{id}")
-    public Page<BankAccountResponseDto> getByUserId(@PathVariable Long id, Pageable pageable) {
-        return bankAccountService.getByUserId(id, pageable);
+    public Page<BankAccountResponseDto> getByUserId(
+            @PathVariable Long id,
+            @RequestParam(required = false) AccountStatus status,
+            Pageable pageable) {
+
+        return bankAccountService.getByUserId(id, status, pageable);
     }
 
     @PreAuthorize("hasRole('ADMIN')")

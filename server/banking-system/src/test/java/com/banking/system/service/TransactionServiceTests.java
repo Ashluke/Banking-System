@@ -27,24 +27,25 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 public class TransactionServiceTests {
-    
-    @Mock 
+
+    @Mock
     private TransactionRepository transactionRepository;
-    
-    @Mock 
+
+    @Mock
     private BankAccountRepository bankAccountRepository;
 
     @Mock
@@ -54,7 +55,8 @@ public class TransactionServiceTests {
     private TransactionService transactionService;
 
 
-    // Deposit test
+    // ===================== DEPOSIT =====================
+
     @Test
     void deposit_shouldIncreaseBalance_andSaveTransaction() {
 
@@ -62,11 +64,8 @@ public class TransactionServiceTests {
         account.setBalance(BigDecimal.valueOf(500.0));
 
         when(bankAccountRepository.findById(1L)).thenReturn(Optional.of(account));
-
         doNothing().when(bankAccountService).validateActive(any());
-
         when(bankAccountRepository.save(any(BankAccount.class))).thenAnswer(i -> i.getArgument(0));
-
         when(transactionRepository.save(any(Transaction.class))).thenAnswer(i -> i.getArgument(0));
 
         DepositRequestDto request = new DepositRequestDto();
@@ -76,11 +75,44 @@ public class TransactionServiceTests {
         transactionService.deposit(request);
 
         assertEquals(0, BigDecimal.valueOf(700.0).compareTo(account.getBalance()));
-
         verify(transactionRepository, times(1)).save(any(Transaction.class));
     }
 
-    // Withdraw test
+    @Test
+    void deposit_shouldThrowException_whenAccountNotActive() {
+
+        BankAccount account = new BankAccount();
+        account.setBalance(BigDecimal.valueOf(500.0));
+
+        when(bankAccountRepository.findById(1L)).thenReturn(Optional.of(account));
+        doThrow(new AccountNotActiveException(account.getId()))
+            .when(bankAccountService).validateActive(any());
+
+        DepositRequestDto request = new DepositRequestDto();
+        request.setAccountId(1L);
+        request.setAmount(BigDecimal.valueOf(200.0));
+
+        assertThrows(AccountNotActiveException.class, () -> transactionService.deposit(request));
+
+        verify(bankAccountRepository, never()).save(any());
+        verify(transactionRepository, never()).save(any());
+    }
+
+    @Test
+    void deposit_shouldThrowException_whenAccountNotFound() {
+
+        when(bankAccountRepository.findById(1L)).thenReturn(Optional.empty());
+
+        DepositRequestDto request = new DepositRequestDto();
+        request.setAccountId(1L);
+        request.setAmount(BigDecimal.valueOf(200.0));
+
+        assertThrows(ResourceNotFoundException.class, () -> transactionService.deposit(request));
+    }
+
+
+    // ===================== WITHDRAW =====================
+
     @Test
     void withdraw_shouldDecreaseBalance_andSaveTransaction() {
 
@@ -88,11 +120,8 @@ public class TransactionServiceTests {
         account.setBalance(BigDecimal.valueOf(1000.0));
 
         when(bankAccountRepository.findById(1L)).thenReturn(Optional.of(account));
-
         doNothing().when(bankAccountService).validateActive(any());
-
         when(bankAccountRepository.save(any(BankAccount.class))).thenAnswer(i -> i.getArgument(0));
-
         when(transactionRepository.save(any(Transaction.class))).thenAnswer(i -> i.getArgument(0));
 
         WithdrawRequestDto request = new WithdrawRequestDto();
@@ -102,11 +131,9 @@ public class TransactionServiceTests {
         transactionService.withdraw(request);
 
         assertEquals(0, BigDecimal.valueOf(700.0).compareTo(account.getBalance()));
-
         verify(transactionRepository, times(1)).save(any(Transaction.class));
     }
 
-    // Withdraw insufficient balance
     @Test
     void withdraw_shouldThrowException_whenInsufficientBalance() {
 
@@ -114,17 +141,30 @@ public class TransactionServiceTests {
         account.setBalance(BigDecimal.valueOf(100.0));
 
         when(bankAccountRepository.findById(1L)).thenReturn(Optional.of(account));
-
         doNothing().when(bankAccountService).validateActive(any());
 
         WithdrawRequestDto request = new WithdrawRequestDto();
         request.setAccountId(1L);
         request.setAmount(BigDecimal.valueOf(500.0));
 
-        assertThrows(RuntimeException.class, () -> transactionService.withdraw(request));
+        assertThrows(InsufficientBalanceException.class, () -> transactionService.withdraw(request));
     }
 
-    // Transfer
+    @Test
+    void withdraw_shouldThrowException_whenAccountNotFound() {
+
+        when(bankAccountRepository.findById(1L)).thenReturn(Optional.empty());
+
+        WithdrawRequestDto request = new WithdrawRequestDto();
+        request.setAccountId(1L);
+        request.setAmount(BigDecimal.valueOf(200.0));
+
+        assertThrows(ResourceNotFoundException.class, () -> transactionService.withdraw(request));
+    }
+
+
+    // ===================== TRANSFER =====================
+
     @Test
     void transfer_shouldMoveBalance_betweenAccounts_andSaveTransactions() {
 
@@ -135,13 +175,9 @@ public class TransactionServiceTests {
         to.setBalance(BigDecimal.valueOf(500.0));
 
         when(bankAccountRepository.findById(1L)).thenReturn(Optional.of(from));
-
         when(bankAccountRepository.findById(2L)).thenReturn(Optional.of(to));
-
         doNothing().when(bankAccountService).validateActive(any());
-
         when(bankAccountRepository.saveAll(anyList())).thenAnswer(i -> i.getArgument(0));
-
         when(transactionRepository.saveAll(anyList())).thenAnswer(i -> i.getArgument(0));
 
         TransferRequestDto request = new TransferRequestDto();
@@ -153,11 +189,9 @@ public class TransactionServiceTests {
 
         assertEquals(0, BigDecimal.valueOf(700.0).compareTo(from.getBalance()));
         assertEquals(0, BigDecimal.valueOf(800.0).compareTo(to.getBalance()));
-
         verify(transactionRepository, atLeast(2)).saveAll(anyList());
     }
 
-    // Transfer insufficient balance
     @Test
     void transfer_shouldThrowException_whenInsufficientBalance() {
 
@@ -167,11 +201,8 @@ public class TransactionServiceTests {
         BankAccount to = new BankAccount();
         to.setBalance(BigDecimal.valueOf(500.0));
 
-        when(bankAccountRepository.findById(1L))
-            .thenReturn(Optional.of(from));
-        when(bankAccountRepository.findById(2L))
-            .thenReturn(Optional.of(to));
-
+        when(bankAccountRepository.findById(1L)).thenReturn(Optional.of(from));
+        when(bankAccountRepository.findById(2L)).thenReturn(Optional.of(to));
         doNothing().when(bankAccountService).validateActive(any());
 
         TransferRequestDto request = new TransferRequestDto();
@@ -179,55 +210,11 @@ public class TransactionServiceTests {
         request.setToAccountId(2L);
         request.setAmount(BigDecimal.valueOf(300.0));
 
-        assertThrows(InsufficientBalanceException.class, () ->
-            transactionService.transfer(request)
-        );
+        assertThrows(InsufficientBalanceException.class, () -> transactionService.transfer(request));
 
         verify(transactionRepository, never()).saveAll(any());
     }
 
-    // Transaction when frozen/closed
-    @Test
-    void allOperations_shouldThrowException_whenAccountNotActive() {
-
-        BankAccount account = new BankAccount();
-        account.setBalance(BigDecimal.valueOf(500.0));
-
-        when(bankAccountRepository.findById(1L)).thenReturn(Optional.of(account));
-        when(bankAccountRepository.findById(2L)).thenReturn(Optional.of(account));
-
-        doThrow(new AccountNotActiveException(account.getId()))
-            .when(bankAccountService).validateActive(any());
-
-        DepositRequestDto depositRequest = new DepositRequestDto();
-        depositRequest.setAccountId(1L);
-        depositRequest.setAmount(BigDecimal.valueOf(200.0));
-
-        WithdrawRequestDto withdrawRequest = new WithdrawRequestDto();
-        withdrawRequest.setAccountId(1L);
-        withdrawRequest.setAmount(BigDecimal.valueOf(200.0));
-
-        TransferRequestDto transferRequest = new TransferRequestDto();
-        transferRequest.setFromAccountId(1L);
-        transferRequest.setToAccountId(2L);
-        transferRequest.setAmount(BigDecimal.valueOf(200.0));
-
-        assertThrows(AccountNotActiveException.class, () ->
-            transactionService.deposit(depositRequest));
-
-        assertThrows(AccountNotActiveException.class, () ->
-            transactionService.withdraw(withdrawRequest));
-
-        assertThrows(AccountNotActiveException.class, () ->
-            transactionService.transfer(transferRequest));
-
-        verify(bankAccountRepository, never()).save(any());
-        verify(bankAccountRepository, never()).saveAll(any());
-        verify(transactionRepository, never()).save(any());
-        verify(transactionRepository, never()).saveAll(any());
-    }
-
-    // Transfer to the same account
     @Test
     void transfer_shouldThrowException_whenSameAccount() {
 
@@ -236,98 +223,96 @@ public class TransactionServiceTests {
         request.setToAccountId(1L);
         request.setAmount(BigDecimal.valueOf(200.0));
 
-        assertThrows(InvalidTransferException.class, () ->
-            transactionService.transfer(request)
-        );
+        assertThrows(InvalidTransferException.class, () -> transactionService.transfer(request));
 
         verify(bankAccountRepository, never()).findById(any());
         verify(transactionRepository, never()).saveAll(any());
     }
 
-    // Account not found (all operations)
     @Test
-    void allOperations_shouldThrowException_whenAccountNotFound() {
+    void transfer_shouldThrowException_whenSourceAccountNotFound() {
+
+        when(bankAccountRepository.findById(1L)).thenReturn(Optional.empty());
+
+        TransferRequestDto request = new TransferRequestDto();
+        request.setFromAccountId(1L);
+        request.setToAccountId(2L);
+        request.setAmount(BigDecimal.valueOf(200.0));
+
+        assertThrows(ResourceNotFoundException.class, () -> transactionService.transfer(request));
+
+        verify(transactionRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void transfer_shouldThrowException_whenDestinationAccountNotFound() {
 
         BankAccount from = new BankAccount();
         from.setBalance(BigDecimal.valueOf(1000.0));
 
-        // deposit / withdraw: account 1L not found
-        // transfer (source not found): account 1L not found, 2L never reached
-        // transfer (destination not found): account 1L found, 2L not found
-        when(bankAccountRepository.findById(1L))
-            .thenReturn(Optional.empty())   // deposit
-            .thenReturn(Optional.empty())   // withdraw
-            .thenReturn(Optional.empty())   // transfer source not found
-            .thenReturn(Optional.of(from)); // transfer destination not found (source found this time)
+        when(bankAccountRepository.findById(1L)).thenReturn(Optional.of(from));
+        when(bankAccountRepository.findById(2L)).thenReturn(Optional.empty());
 
-        when(bankAccountRepository.findById(2L))
-            .thenReturn(Optional.empty());  // transfer destination not found
+        TransferRequestDto request = new TransferRequestDto();
+        request.setFromAccountId(1L);
+        request.setToAccountId(2L);
+        request.setAmount(BigDecimal.valueOf(200.0));
 
-        DepositRequestDto depositRequest = new DepositRequestDto();
-        depositRequest.setAccountId(1L);
-        depositRequest.setAmount(BigDecimal.valueOf(200.0));
+        assertThrows(ResourceNotFoundException.class, () -> transactionService.transfer(request));
 
-        WithdrawRequestDto withdrawRequest = new WithdrawRequestDto();
-        withdrawRequest.setAccountId(1L);
-        withdrawRequest.setAmount(BigDecimal.valueOf(200.0));
-
-        TransferRequestDto transferSourceMissing = new TransferRequestDto();
-        transferSourceMissing.setFromAccountId(1L);
-        transferSourceMissing.setToAccountId(2L);
-        transferSourceMissing.setAmount(BigDecimal.valueOf(200.0));
-
-        TransferRequestDto transferDestMissing = new TransferRequestDto();
-        transferDestMissing.setFromAccountId(1L);
-        transferDestMissing.setToAccountId(2L);
-        transferDestMissing.setAmount(BigDecimal.valueOf(200.0));
-
-        assertThrows(ResourceNotFoundException.class, () ->
-            transactionService.deposit(depositRequest));
-
-        assertThrows(ResourceNotFoundException.class, () ->
-            transactionService.withdraw(withdrawRequest));
-
-        assertThrows(ResourceNotFoundException.class, () ->
-            transactionService.transfer(transferSourceMissing));
-
-        assertThrows(ResourceNotFoundException.class, () ->
-            transactionService.transfer(transferDestMissing));
-
-        verify(bankAccountRepository, never()).save(any());
-        verify(bankAccountRepository, never()).saveAll(any());
-        verify(transactionRepository, never()).save(any());
         verify(transactionRepository, never()).saveAll(any());
     }
 
-    // Get transactions when admin
+    @Test
+    void transfer_shouldThrowException_whenAccountNotActive() {
+
+        BankAccount from = new BankAccount();
+        from.setBalance(BigDecimal.valueOf(500.0));
+
+        BankAccount to = new BankAccount();
+        to.setBalance(BigDecimal.valueOf(500.0));
+
+        when(bankAccountRepository.findById(1L)).thenReturn(Optional.of(from));
+        when(bankAccountRepository.findById(2L)).thenReturn(Optional.of(to));
+        doThrow(new AccountNotActiveException(from.getId()))
+            .when(bankAccountService).validateActive(any());
+
+        TransferRequestDto request = new TransferRequestDto();
+        request.setFromAccountId(1L);
+        request.setToAccountId(2L);
+        request.setAmount(BigDecimal.valueOf(200.0));
+
+        assertThrows(AccountNotActiveException.class, () -> transactionService.transfer(request));
+
+        verify(bankAccountRepository, never()).saveAll(any());
+        verify(transactionRepository, never()).saveAll(any());
+    }
+
+
+    // ===================== GET BY ACCOUNT ID (with filters) =====================
+
+    @SuppressWarnings("unchecked")
     @Test
     void getByAccountId_shouldReturnTransactions_whenAdmin() {
 
         BankAccount account = new BankAccount();
         account.setBalance(BigDecimal.valueOf(1000.0));
 
-        Transaction tx = new Transaction(
-            account,
-            BigDecimal.valueOf(200.0),
-            TransactionType.DEPOSIT
+        Transaction tx = new Transaction(account, BigDecimal.valueOf(200.0), TransactionType.DEPOSIT);
+
+        when(bankAccountRepository.findById(1L)).thenReturn(Optional.of(account));
+        when(transactionRepository.findAll(any(Specification.class), any(Pageable.class)))
+            .thenReturn(new PageImpl<>(List.of(tx)));
+
+        Page<TransactionResponseDto> result = transactionService.getByAccountId(
+            1L, 99L, true, null, null, null, null, null, Pageable.unpaged()
         );
 
-        when(bankAccountRepository.findById(1L))
-            .thenReturn(Optional.of(account));
-
-        when(transactionRepository.findByBankAccount_Id(
-            eq(1L), any(Pageable.class))
-        ).thenReturn(new PageImpl<>(List.of(tx)));
-
-        Page<TransactionResponseDto> result = transactionService
-            .getByAccountId(1L, 99L, true, Pageable.unpaged());
-
         assertEquals(1, result.getTotalElements());
-        verify(transactionRepository, times(1))
-            .findByBankAccount_Id(eq(1L), any(Pageable.class));
+        verify(transactionRepository, times(1)).findAll(any(Specification.class), any(Pageable.class));
     }
 
-    // Get transactions when owner
+    @SuppressWarnings("unchecked")
     @Test
     void getByAccountId_shouldReturnTransactions_whenOwner() {
 
@@ -341,28 +326,84 @@ public class TransactionServiceTests {
         account.setBalance(BigDecimal.valueOf(1000.0));
         account.setUser(user);
 
-        Transaction tx = new Transaction(
-            account,
-            BigDecimal.valueOf(200.0),
-            TransactionType.DEPOSIT
+        Transaction tx = new Transaction(account, BigDecimal.valueOf(200.0), TransactionType.DEPOSIT);
+
+        when(bankAccountRepository.findById(1L)).thenReturn(Optional.of(account));
+        when(transactionRepository.findAll(any(Specification.class), any(Pageable.class)))
+            .thenReturn(new PageImpl<>(List.of(tx)));
+
+        Page<TransactionResponseDto> result = transactionService.getByAccountId(
+            1L, 1L, false, null, null, null, null, null, Pageable.unpaged()
         );
 
-        when(bankAccountRepository.findById(1L))
-            .thenReturn(Optional.of(account));
-
-        when(transactionRepository.findByBankAccount_Id(
-            eq(1L), any(Pageable.class))
-        ).thenReturn(new PageImpl<>(List.of(tx)));
-
-        Page<TransactionResponseDto> result = transactionService
-            .getByAccountId(1L, 1L, false, Pageable.unpaged());
-
         assertEquals(1, result.getTotalElements());
-        verify(transactionRepository, times(1))
-            .findByBankAccount_Id(eq(1L), any(Pageable.class));
     }
 
-    // Get transactions when not owner (should error)
+    @SuppressWarnings("unchecked")
+    @Test
+    void getByAccountId_shouldFilterByType_whenTypeProvided() {
+
+        BankAccount account = new BankAccount();
+        account.setBalance(BigDecimal.valueOf(1000.0));
+
+        Transaction tx = new Transaction(account, BigDecimal.valueOf(200.0), TransactionType.DEPOSIT);
+
+        when(bankAccountRepository.findById(1L)).thenReturn(Optional.of(account));
+        when(transactionRepository.findAll(any(Specification.class), any(Pageable.class)))
+            .thenReturn(new PageImpl<>(List.of(tx)));
+
+        Page<TransactionResponseDto> result = transactionService.getByAccountId(
+            1L, 99L, true, TransactionType.DEPOSIT, null, null, null, null, Pageable.unpaged()
+        );
+
+        assertEquals(1, result.getTotalElements());
+        assertEquals(TransactionType.DEPOSIT, result.getContent().get(0).getType());
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void getByAccountId_shouldFilterByDateRange() {
+
+        BankAccount account = new BankAccount();
+        account.setBalance(BigDecimal.valueOf(1000.0));
+
+        Transaction tx = new Transaction(account, BigDecimal.valueOf(200.0), TransactionType.WITHDRAW);
+
+        LocalDateTime from = LocalDateTime.now().minusDays(7);
+        LocalDateTime to = LocalDateTime.now();
+
+        when(bankAccountRepository.findById(1L)).thenReturn(Optional.of(account));
+        when(transactionRepository.findAll(any(Specification.class), any(Pageable.class)))
+            .thenReturn(new PageImpl<>(List.of(tx)));
+
+        Page<TransactionResponseDto> result = transactionService.getByAccountId(
+            1L, 99L, true, null, from, to, null, null, Pageable.unpaged()
+        );
+
+        assertEquals(1, result.getTotalElements());
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void getByAccountId_shouldFilterByAmountRange() {
+
+        BankAccount account = new BankAccount();
+        account.setBalance(BigDecimal.valueOf(1000.0));
+
+        Transaction tx = new Transaction(account, BigDecimal.valueOf(500.0), TransactionType.DEPOSIT);
+
+        when(bankAccountRepository.findById(1L)).thenReturn(Optional.of(account));
+        when(transactionRepository.findAll(any(Specification.class), any(Pageable.class)))
+            .thenReturn(new PageImpl<>(List.of(tx)));
+
+        Page<TransactionResponseDto> result = transactionService.getByAccountId(
+            1L, 99L, true, null, null, null, BigDecimal.valueOf(100.0), BigDecimal.valueOf(1000.0), Pageable.unpaged()
+        );
+
+        assertEquals(1, result.getTotalElements());
+    }
+
+    @SuppressWarnings("unchecked")
     @Test
     void getByAccountId_shouldThrowException_whenNotOwner() {
 
@@ -378,9 +419,11 @@ public class TransactionServiceTests {
         when(bankAccountRepository.findById(1L)).thenReturn(Optional.of(account));
 
         assertThrows(UnauthorizedActionException.class, () ->
-            transactionService.getByAccountId(1L, 99L, false, Pageable.unpaged())
+            transactionService.getByAccountId(
+                1L, 99L, false, null, null, null, null, null, Pageable.unpaged()
+            )
         );
 
-        verify(transactionRepository, never()).findByBankAccount_Id(any(), any());
+        verify(transactionRepository, never()).findAll(any(Specification.class), any(Pageable.class));
     }
 }

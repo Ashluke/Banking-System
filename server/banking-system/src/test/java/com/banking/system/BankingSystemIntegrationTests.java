@@ -1,8 +1,9 @@
 package com.banking.system;
 
-import com.banking.system.dto.request.AppUserCreateRequestDto;
+import com.banking.system.dto.request.AdminCreateRequestDto;
 import com.banking.system.dto.request.AppUserLoginRequestDto;
 import com.banking.system.dto.request.BankAccountCreateRequestDto;
+import com.banking.system.dto.request.DepositRequestDto;
 import com.banking.system.dto.request.UserCreateRequestDto;
 import com.banking.system.model.entities.Admin;
 import com.banking.system.model.entities.AppUser;
@@ -28,7 +29,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -64,23 +64,15 @@ public class BankingSystemIntegrationTests {
 
         AppUser savedAppUser = appUserRepository.save(appUser);
 
-        // Must also create the Admin entity so AuditLogService.logAction() can find it
         Admin admin = new Admin(savedAppUser, "SEED-001", "Seed", "Admin");
         adminRepository.save(admin);
 
         return savedAppUser;
     }
 
-    @Test
-    void fullFlow_registerLoginCreateAccount_shouldSucceedEndToEnd() throws Exception {
+    private String loginAndGetToken(String email, String password) throws Exception {
 
-        // 1. Seed an admin directly (bypassing the chicken-and-egg register-requires-admin problem)
-        seedAdmin("seedadmin@example.com", "adminPass123");
-
-        // 2. Login as that admin to get a real JWT
-        AppUserLoginRequestDto loginRequest = new AppUserLoginRequestDto(
-            "seedadmin@example.com", "adminPass123"
-        );
+        AppUserLoginRequestDto loginRequest = new AppUserLoginRequestDto(email, password);
 
         String loginResponse = mockMvc.perform(post("/api/app-users/login")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -93,54 +85,133 @@ public class BankingSystemIntegrationTests {
         String token = objectMapper.readTree(loginResponse).get("token").asText();
         assertNotNull(token);
         assertFalse(token.isBlank());
+        return token;
+    }
 
-        // 3. Use the real JWT to register a new USER account (admin-only endpoint)
-        AppUserCreateRequestDto registerRequest = new AppUserCreateRequestDto(
-            "newuser@example.com", "userPass123", Role.USER
+    private Long registerUserAndGetUserId(String adminToken, String email, String firstName) throws Exception {
+
+        String uniquePhone = "09" + String.format("%09d", Math.abs(email.hashCode()) % 1_000_000_000);
+
+        UserCreateRequestDto userRequest = new UserCreateRequestDto(
+            email, "userPass123", firstName, "Doe", uniquePhone, "123 Main St"
         );
 
-        String registerResponse = mockMvc.perform(post("/api/app-users/register")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+        String userResponse = mockMvc.perform(post("/api/users/register")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(registerRequest)))
+                .content(objectMapper.writeValueAsString(userRequest)))
             .andExpect(status().isCreated())
-            .andExpect(jsonPath("$.email").value("newuser@example.com"))
             .andReturn()
             .getResponse()
             .getContentAsString();
 
-        Long newAppUserId = objectMapper.readTree(registerResponse).get("id").asLong();
+        return objectMapper.readTree(userResponse).get("id").asLong();
+    }
 
-        // 4. Create the User profile for that AppUser, still as admin
-        UserCreateRequestDto userProfileRequest = new UserCreateRequestDto(
-            newAppUserId, "Jane", "Doe", "09171234567", "123 Main St"
-        );
+    private Long createAccountAndGetAccountId(String adminToken, Long userId) throws Exception {
 
-        String userResponse = mockMvc.perform(post("/api/users")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(userProfileRequest)))
-            .andExpect(status().isCreated())
-            .andDo(print())
-            .andExpect(jsonPath("$.firstName").value("Jane"))
-            .andReturn()
-            .getResponse()
-            .getContentAsString();
-
-        Long newUserId = objectMapper.readTree(userResponse).get("id").asLong();
-
-        // 5. Create a bank account for that user, still as admin
         BankAccountCreateRequestDto accountRequest = new BankAccountCreateRequestDto();
-        accountRequest.setUserId(newUserId);
+        accountRequest.setUserId(userId);
 
-        mockMvc.perform(post("/api/accounts")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+        String accountResponse = mockMvc.perform(post("/api/accounts")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(accountRequest)))
             .andExpect(status().isCreated())
             .andExpect(jsonPath("$.status").value("ACTIVE"))
-            .andExpect(jsonPath("$.balance").value(0));
+            .andExpect(jsonPath("$.balance").value(0))
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+        return objectMapper.readTree(accountResponse).get("id").asLong();
     }
+
+
+    // ===================== FULL FLOW — USER + ACCOUNT =====================
+
+    @Test
+    void fullFlow_registerLoginCreateAccount_shouldSucceedEndToEnd() throws Exception {
+
+        seedAdmin("seedadmin@example.com", "adminPass123");
+        String adminToken = loginAndGetToken("seedadmin@example.com", "adminPass123");
+
+        Long newUserId = registerUserAndGetUserId(adminToken, "jane@example.com", "Jane");
+
+        createAccountAndGetAccountId(adminToken, newUserId);
+    }
+
+    @Test
+    void fullFlow_registerAdmin_shouldSucceedEndToEnd() throws Exception {
+
+        seedAdmin("superadmin@example.com", "adminPass123");
+        String adminToken = loginAndGetToken("superadmin@example.com", "adminPass123");
+
+        AdminCreateRequestDto adminRequest = new AdminCreateRequestDto(
+            "newadmin@example.com", "adminPass456", "STAFF002", "Alice", "Smith"
+        );
+
+        mockMvc.perform(post("/api/admins/register")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(adminRequest)))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.staffCode").value("STAFF002"))
+            .andExpect(jsonPath("$.firstName").value("Alice"))
+            .andExpect(jsonPath("$.email").value("newadmin@example.com"))
+            .andExpect(jsonPath("$.role").value("ADMIN"));
+    }
+
+
+    // ===================== FULL FLOW — TRANSACTIONS + ANALYTICS =====================
+
+    @Test
+    void fullFlow_depositAndFetchInsights_shouldSucceedEndToEnd() throws Exception {
+
+        seedAdmin("txnadmin@example.com", "adminPass123");
+        String adminToken = loginAndGetToken("txnadmin@example.com", "adminPass123");
+
+        Long userId = registerUserAndGetUserId(adminToken, "txnuser@example.com", "Mark");
+        Long accountId = createAccountAndGetAccountId(adminToken, userId);
+
+        String userToken = loginAndGetToken("txnuser@example.com", "userPass123");
+
+        DepositRequestDto depositRequest = new DepositRequestDto();
+        depositRequest.setAccountId(accountId);
+        depositRequest.setAmount(new java.math.BigDecimal("5000.00"));
+
+        mockMvc.perform(post("/api/transactions/deposit")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + userToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(depositRequest)))
+            .andExpect(status().isCreated());
+
+        // Fetch insights as the owner — should succeed
+        mockMvc.perform(get("/api/analytics/insights/" + accountId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + userToken))
+            .andExpect(status().isOk());
+    }
+
+    @Test
+    void analyticsEndpoint_shouldReturn403_whenNotAccountOwner() throws Exception {
+
+        seedAdmin("analyticsadmin@example.com", "adminPass123");
+        String adminToken = loginAndGetToken("analyticsadmin@example.com", "adminPass123");
+
+        Long ownerId = registerUserAndGetUserId(adminToken, "owner@example.com", "Owner");
+        Long accountId = createAccountAndGetAccountId(adminToken, ownerId);
+
+        // Register a second, unrelated user
+        registerUserAndGetUserId(adminToken, "intruder@example.com", "Intruder");
+        String intruderToken = loginAndGetToken("intruder@example.com", "userPass123");
+
+        mockMvc.perform(get("/api/analytics/insights/" + accountId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + intruderToken))
+            .andExpect(status().isForbidden());
+    }
+
+
+    // ===================== AUTH EDGE CASES =====================
 
     @Test
     void protectedEndpoint_shouldReturn401_withoutToken() throws Exception {
@@ -173,37 +244,152 @@ public class BankingSystemIntegrationTests {
     }
 
     @Test
-    void register_shouldReturn403_whenCallerIsNotAdmin() throws Exception {
+    void registerUser_shouldReturn403_whenCallerIsNotAdmin() throws Exception {
 
-        // Seed a regular USER and log in as them
         AppUser user = new AppUser();
         user.setEmail("regularuser@example.com");
         user.setPasswordHash(PasswordUtil.hashPassword("userPass123"));
         user.setRole(Role.USER);
         appUserRepository.save(user);
 
-        AppUserLoginRequestDto loginRequest = new AppUserLoginRequestDto(
-            "regularuser@example.com", "userPass123"
+        String userToken = loginAndGetToken("regularuser@example.com", "userPass123");
+
+        UserCreateRequestDto request = new UserCreateRequestDto(
+            "shouldnotwork@example.com", "password123", "Test", "User", "09171234567", "123 St"
         );
 
-        String loginResponse = mockMvc.perform(post("/api/app-users/login")
+        mockMvc.perform(post("/api/users/register")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + userToken)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(loginRequest)))
-            .andExpect(status().isOk())
+                .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void registerAdmin_shouldReturn403_whenCallerIsNotAdmin() throws Exception {
+
+        AppUser user = new AppUser();
+        user.setEmail("regularuser2@example.com");
+        user.setPasswordHash(PasswordUtil.hashPassword("userPass123"));
+        user.setRole(Role.USER);
+        appUserRepository.save(user);
+
+        String userToken = loginAndGetToken("regularuser2@example.com", "userPass123");
+
+        AdminCreateRequestDto request = new AdminCreateRequestDto(
+            "shouldnotwork@example.com", "password123", "STAFF999", "Bad", "Actor"
+        );
+
+        mockMvc.perform(post("/api/admins/register")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + userToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void registerUser_shouldReturn409_whenEmailAlreadyTaken() throws Exception {
+
+        seedAdmin("adminfordup@example.com", "adminPass123");
+        String adminToken = loginAndGetToken("adminfordup@example.com", "adminPass123");
+
+        UserCreateRequestDto request = new UserCreateRequestDto(
+            "duplicate@example.com", "password123", "First", "User", "09171111111", "Addr 1"
+        );
+
+        mockMvc.perform(post("/api/users/register")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isCreated());
+
+        UserCreateRequestDto duplicate = new UserCreateRequestDto(
+            "duplicate@example.com", "password456", "Second", "User", "09172222222", "Addr 2"
+        );
+
+        mockMvc.perform(post("/api/users/register")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(duplicate)))
+            .andExpect(status().isConflict());
+    }
+
+
+    // ===================== LOAN MODULE — REQUIRES PYTHON ANALYTICS SERVICE RUNNING =====================
+    // NOTE: These tests call the real analytics.service.url and require the FastAPI
+    // service to be running locally during the test run, since credit score is fetched
+    // from Python during loan application. If the service is not running, these tests
+    // will fail with a connection error rather than a business logic failure.
+
+    @Test
+    void loanFlow_applyAndReject_shouldSucceedEndToEnd() throws Exception {
+
+        seedAdmin("loanadmin@example.com", "adminPass123");
+        String adminToken = loginAndGetToken("loanadmin@example.com", "adminPass123");
+
+        Long userId = registerUserAndGetUserId(adminToken, "loanuser@example.com", "Loanee");
+        Long accountId = createAccountAndGetAccountId(adminToken, userId);
+
+        String userToken = loginAndGetToken("loanuser@example.com", "userPass123");
+
+        // Deposit enough history so credit score isn't the absolute minimum
+        DepositRequestDto depositRequest = new DepositRequestDto();
+        depositRequest.setAccountId(accountId);
+        depositRequest.setAmount(new java.math.BigDecimal("60000.00"));
+
+        mockMvc.perform(post("/api/transactions/deposit")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + userToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(depositRequest)))
+            .andExpect(status().isCreated());
+
+        String loanRequestJson = """
+            {
+              "bankAccountId": %d,
+              "type": "PERSONAL",
+              "amount": 40000.00,
+              "termMonths": 12
+            }
+            """.formatted(accountId);
+
+        // Apply for the loan — result may vary based on actual credit score calculation
+        // from the live Python analytics service. Either a successful creation (201) or
+        // a correctly rejected low-score application (400) is valid behavior here.
+        int status = mockMvc.perform(post("/api/loans/apply")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + userToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(loanRequestJson))
             .andReturn()
             .getResponse()
-            .getContentAsString();
+            .getStatus();
 
-        String token = objectMapper.readTree(loginResponse).get("token").asText();
+        // Either it's created (201) or correctly rejected for low credit score / duplicate loan (400)
+        assertTrue(status == 201 || status == 400);
+    }
 
-        AppUserCreateRequestDto registerRequest = new AppUserCreateRequestDto(
-            "shouldnotwork@example.com", "password123", Role.USER
-        );
+    @Test
+    void loanEndpoint_shouldReturn403_whenAdminTriesToApply() throws Exception {
 
-        mockMvc.perform(post("/api/app-users/register")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+        seedAdmin("loanadmin2@example.com", "adminPass123");
+        String adminToken = loginAndGetToken("loanadmin2@example.com", "adminPass123");
+
+        Long userId = registerUserAndGetUserId(adminToken, "loanuser2@example.com", "Loanee2");
+        Long accountId = createAccountAndGetAccountId(adminToken, userId);
+
+        String loanRequestJson = """
+            {
+              "bankAccountId": %d,
+              "type": "PERSONAL",
+              "amount": 40000.00,
+              "termMonths": 12
+            }
+            """.formatted(accountId);
+
+        // Admin role is not permitted to apply for loans — only USER role can
+        mockMvc.perform(post("/api/loans/apply")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(registerRequest)))
+                .content(loanRequestJson))
             .andExpect(status().isForbidden());
     }
 }

@@ -35,6 +35,7 @@ import java.util.List;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.*;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
@@ -69,18 +70,24 @@ public class BankAccountControllerTests {
 
     private UsernamePasswordAuthenticationToken userAuth(Long appUserId) {
         return new UsernamePasswordAuthenticationToken(
-            appUserId,
-            null,
-            List.of(new SimpleGrantedAuthority("ROLE_USER"))
+            appUserId, null, List.of(new SimpleGrantedAuthority("ROLE_USER"))
         );
     }
 
     private UsernamePasswordAuthenticationToken adminAuth(Long appUserId) {
         return new UsernamePasswordAuthenticationToken(
-            appUserId,
-            null,
-            List.of(new SimpleGrantedAuthority("ROLE_ADMIN"))
+            appUserId, null, List.of(new SimpleGrantedAuthority("ROLE_ADMIN"))
         );
+    }
+
+    // Helper — isJoint=false for non-joint accounts
+    private BankAccountResponseDto accountResponse(Long id, BigDecimal balance, AccountStatus status, Long userId) {
+        return new BankAccountResponseDto(id, balance, status, userId, false);
+    }
+
+    // Helper — isJoint=true for joint accounts
+    private BankAccountResponseDto jointAccountResponse(Long id, BigDecimal balance, AccountStatus status, Long userId) {
+        return new BankAccountResponseDto(id, balance, status, userId, true);
     }
 
 
@@ -92,19 +99,16 @@ public class BankAccountControllerTests {
         BankAccountCreateRequestDto request = new BankAccountCreateRequestDto();
         request.setUserId(1L);
 
-        BankAccountResponseDto response = new BankAccountResponseDto(
-            1L, BigDecimal.ZERO, AccountStatus.ACTIVE, 1L
-        );
-
         when(bankAccountService.createAccount(any(BankAccountCreateRequestDto.class), eq(99L)))
-            .thenReturn(response);
+            .thenReturn(accountResponse(1L, BigDecimal.ZERO, AccountStatus.ACTIVE, 1L));
 
         mockMvc.perform(post("/api/accounts")
                 .with(authentication(adminAuth(99L)))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
             .andExpect(status().isCreated())
-            .andExpect(jsonPath("$.status").value("ACTIVE"));
+            .andExpect(jsonPath("$.status").value("ACTIVE"))
+            .andExpect(jsonPath("$.isJoint").value(false));
     }
 
     @Test
@@ -141,7 +145,7 @@ public class BankAccountControllerTests {
         request.setUserId(1L);
 
         when(bankAccountService.createAccount(any(BankAccountCreateRequestDto.class), eq(99L)))
-            .thenThrow(new ResourceNotFoundException("AppUser not found"));
+            .thenThrow(new ResourceNotFoundException("User not found"));
 
         mockMvc.perform(post("/api/accounts")
                 .with(authentication(adminAuth(99L)))
@@ -181,17 +185,65 @@ public class BankAccountControllerTests {
     }
 
 
+    // ===================== GET ALL (admin only, optional status filter) =====================
+
+    @Test
+    void getAll_shouldReturn200_withNoFilter_whenAdmin() throws Exception {
+
+        Page<BankAccountResponseDto> page = new PageImpl<>(
+            List.of(accountResponse(1L, BigDecimal.valueOf(500.0), AccountStatus.ACTIVE, 1L))
+        );
+
+        when(bankAccountService.getAllAccounts(isNull(), any(Pageable.class))).thenReturn(page);
+
+        mockMvc.perform(get("/api/accounts")
+                .with(authentication(adminAuth(99L))))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.content[0].status").value("ACTIVE"));
+    }
+
+    @Test
+    void getAll_shouldReturn200_withStatusFilter_whenAdmin() throws Exception {
+
+        Page<BankAccountResponseDto> page = new PageImpl<>(
+            List.of(accountResponse(1L, BigDecimal.valueOf(500.0), AccountStatus.FROZEN, 1L))
+        );
+
+        when(bankAccountService.getAllAccounts(eq(AccountStatus.FROZEN), any(Pageable.class)))
+            .thenReturn(page);
+
+        mockMvc.perform(get("/api/accounts")
+                .param("status", "FROZEN")
+                .with(authentication(adminAuth(99L))))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.content[0].status").value("FROZEN"));
+    }
+
+    @Test
+    void getAll_shouldReturn403_whenUserRole() throws Exception {
+
+        mockMvc.perform(get("/api/accounts")
+                .with(authentication(userAuth(1L))))
+            .andExpect(status().isForbidden());
+
+        verify(bankAccountService, never()).getAllAccounts(any(), any());
+    }
+
+    @Test
+    void getAll_shouldReturn401_whenUnauthenticated() throws Exception {
+
+        mockMvc.perform(get("/api/accounts"))
+            .andExpect(status().isUnauthorized());
+    }
+
+
     // ===================== GET BY ID =====================
 
     @Test
-    void getById_shouldReturn200_whenOwner() throws Exception {
-
-        BankAccountResponseDto response = new BankAccountResponseDto(
-            1L, BigDecimal.valueOf(500.0), AccountStatus.ACTIVE, 1L
-        );
+    void getById_shouldReturn200_whenMember() throws Exception {
 
         when(bankAccountService.getBankAccountById(eq(1L), eq(5L), eq(false)))
-            .thenReturn(response);
+            .thenReturn(accountResponse(1L, BigDecimal.valueOf(500.0), AccountStatus.ACTIVE, 1L));
 
         mockMvc.perform(get("/api/accounts/1")
                 .with(authentication(userAuth(5L))))
@@ -200,14 +252,22 @@ public class BankAccountControllerTests {
     }
 
     @Test
+    void getById_shouldReturn200_andShowIsJoint_whenJointAccount() throws Exception {
+
+        when(bankAccountService.getBankAccountById(eq(1L), eq(5L), eq(false)))
+            .thenReturn(jointAccountResponse(1L, BigDecimal.valueOf(500.0), AccountStatus.ACTIVE, 1L));
+
+        mockMvc.perform(get("/api/accounts/1")
+                .with(authentication(userAuth(5L))))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.isJoint").value(true));
+    }
+
+    @Test
     void getById_shouldReturn200_whenAdmin() throws Exception {
 
-        BankAccountResponseDto response = new BankAccountResponseDto(
-            1L, BigDecimal.valueOf(500.0), AccountStatus.ACTIVE, 1L
-        );
-
         when(bankAccountService.getBankAccountById(eq(1L), eq(99L), eq(true)))
-            .thenReturn(response);
+            .thenReturn(accountResponse(1L, BigDecimal.valueOf(500.0), AccountStatus.ACTIVE, 1L));
 
         mockMvc.perform(get("/api/accounts/1")
                 .with(authentication(adminAuth(99L))))
@@ -215,10 +275,10 @@ public class BankAccountControllerTests {
     }
 
     @Test
-    void getById_shouldReturn403_whenNotOwner() throws Exception {
+    void getById_shouldReturn403_whenNotMember() throws Exception {
 
         when(bankAccountService.getBankAccountById(eq(1L), eq(999L), eq(false)))
-            .thenThrow(new UnauthorizedActionException("You do not own this account"));
+            .thenThrow(new UnauthorizedActionException("You do not have access to this account"));
 
         mockMvc.perform(get("/api/accounts/1")
                 .with(authentication(userAuth(999L))))
@@ -244,18 +304,16 @@ public class BankAccountControllerTests {
     }
 
 
-    // ===================== GET BY USER ID =====================
+    // ===================== GET BY USER ID (optional status filter) =====================
 
     @Test
-    void getByUserId_shouldReturn200_whenUserRole() throws Exception {
+    void getByUserId_shouldReturn200_withNoFilter() throws Exception {
 
-        BankAccountResponseDto response = new BankAccountResponseDto(
-            1L, BigDecimal.valueOf(500.0), AccountStatus.ACTIVE, 1L
+        Page<BankAccountResponseDto> page = new PageImpl<>(
+            List.of(accountResponse(1L, BigDecimal.valueOf(500.0), AccountStatus.ACTIVE, 1L))
         );
 
-        Page<BankAccountResponseDto> page = new PageImpl<>(List.of(response));
-
-        when(bankAccountService.getByUserId(eq(1L), any(Pageable.class))).thenReturn(page);
+        when(bankAccountService.getByUserId(eq(1L), isNull(), any(Pageable.class))).thenReturn(page);
 
         mockMvc.perform(get("/api/accounts/users/1")
                 .with(authentication(userAuth(5L))))
@@ -264,25 +322,26 @@ public class BankAccountControllerTests {
     }
 
     @Test
-    void getByUserId_shouldReturn200_whenAdmin() throws Exception {
+    void getByUserId_shouldReturn200_withStatusFilter() throws Exception {
 
-        BankAccountResponseDto response = new BankAccountResponseDto(
-            1L, BigDecimal.valueOf(500.0), AccountStatus.ACTIVE, 1L
+        Page<BankAccountResponseDto> page = new PageImpl<>(
+            List.of(accountResponse(1L, BigDecimal.valueOf(500.0), AccountStatus.FROZEN, 1L))
         );
 
-        Page<BankAccountResponseDto> page = new PageImpl<>(List.of(response));
-
-        when(bankAccountService.getByUserId(eq(1L), any(Pageable.class))).thenReturn(page);
+        when(bankAccountService.getByUserId(eq(1L), eq(AccountStatus.FROZEN), any(Pageable.class)))
+            .thenReturn(page);
 
         mockMvc.perform(get("/api/accounts/users/1")
+                .param("status", "FROZEN")
                 .with(authentication(adminAuth(99L))))
-            .andExpect(status().isOk());
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.content[0].status").value("FROZEN"));
     }
 
     @Test
     void getByUserId_shouldReturn404_whenUserNotFound() throws Exception {
 
-        when(bankAccountService.getByUserId(eq(1L), any(Pageable.class)))
+        when(bankAccountService.getByUserId(eq(1L), isNull(), any(Pageable.class)))
             .thenThrow(new ResourceNotFoundException("User not found"));
 
         mockMvc.perform(get("/api/accounts/users/1")
@@ -303,12 +362,8 @@ public class BankAccountControllerTests {
     @Test
     void closeAccount_shouldReturn200_whenAdmin() throws Exception {
 
-        BankAccountResponseDto response = new BankAccountResponseDto(
-            1L, BigDecimal.valueOf(500.0), AccountStatus.CLOSED, 1L
-        );
-
         when(bankAccountService.closeAccount(eq(1L), eq(99L), eq(true)))
-            .thenReturn(response);
+            .thenReturn(accountResponse(1L, BigDecimal.valueOf(500.0), AccountStatus.CLOSED, 1L));
 
         mockMvc.perform(put("/api/accounts/1/close")
                 .with(authentication(adminAuth(99L))))
@@ -350,12 +405,8 @@ public class BankAccountControllerTests {
     @Test
     void freezeAccount_shouldReturn200_whenAdmin() throws Exception {
 
-        BankAccountResponseDto response = new BankAccountResponseDto(
-            1L, BigDecimal.valueOf(500.0), AccountStatus.FROZEN, 1L
-        );
-
         when(bankAccountService.freezeAccount(eq(1L), eq(99L), eq(true)))
-            .thenReturn(response);
+            .thenReturn(accountResponse(1L, BigDecimal.valueOf(500.0), AccountStatus.FROZEN, 1L));
 
         mockMvc.perform(put("/api/accounts/1/freeze")
                 .with(authentication(adminAuth(99L))))
@@ -397,12 +448,8 @@ public class BankAccountControllerTests {
     @Test
     void unfreezeAccount_shouldReturn200_whenAdmin() throws Exception {
 
-        BankAccountResponseDto response = new BankAccountResponseDto(
-            1L, BigDecimal.valueOf(500.0), AccountStatus.ACTIVE, 1L
-        );
-
         when(bankAccountService.unfreezeAccount(eq(1L), eq(99L), eq(true)))
-            .thenReturn(response);
+            .thenReturn(accountResponse(1L, BigDecimal.valueOf(500.0), AccountStatus.ACTIVE, 1L));
 
         mockMvc.perform(put("/api/accounts/1/unfreeze")
                 .with(authentication(adminAuth(99L))))

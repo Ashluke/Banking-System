@@ -1,11 +1,14 @@
 package com.banking.system.controller;
 
+import com.banking.system.dto.request.AdminUserUpdateRequestDto;
 import com.banking.system.dto.request.UserCreateRequestDto;
 import com.banking.system.dto.request.UserUpdateRequestDto;
+import com.banking.system.dto.response.UserRegisterResponseDto;
 import com.banking.system.dto.response.UserResponseDto;
 import com.banking.system.exception.DuplicateResourceException;
 import com.banking.system.exception.ResourceNotFoundException;
 import com.banking.system.exception.UnauthorizedActionException;
+import com.banking.system.model.enums.Role;
 import com.banking.system.security.JWTService;
 import com.banking.system.security.SecurityConfig;
 import com.banking.system.services.UserService;
@@ -28,6 +31,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -67,102 +71,84 @@ public class UserControllerTests {
 
     private UsernamePasswordAuthenticationToken userAuth(Long appUserId) {
         return new UsernamePasswordAuthenticationToken(
-            appUserId,
-            null,
-            List.of(new SimpleGrantedAuthority("ROLE_USER"))
+            appUserId, null, List.of(new SimpleGrantedAuthority("ROLE_USER"))
         );
     }
 
     private UsernamePasswordAuthenticationToken adminAuth(Long appUserId) {
         return new UsernamePasswordAuthenticationToken(
-            appUserId,
-            null,
-            List.of(new SimpleGrantedAuthority("ROLE_ADMIN"))
+            appUserId, null, List.of(new SimpleGrantedAuthority("ROLE_ADMIN"))
         );
     }
 
 
-    // ===================== CREATE =====================
+    // ===================== REGISTER (combined AppUser + User) =====================
 
     @Test
-    void create_shouldReturn201_whenAdmin() throws Exception {
+    void register_shouldReturn201_whenAdmin() throws Exception {
 
         UserCreateRequestDto request = new UserCreateRequestDto(
-            1L, "John", "Doe", "09171234567", "123 Main St"
+            "jane@example.com", "password123", "Jane", "Doe", "09171234567", "123 Main St"
         );
 
-        UserResponseDto response = new UserResponseDto(
-            1L, "John", "Doe", "09171234567", "123 Main St", 1L
+        UserRegisterResponseDto response = new UserRegisterResponseDto(
+            1L, "jane@example.com", "Jane", "Doe", "09171234567", "123 Main St",
+            1L, Role.USER, LocalDateTime.now()
         );
 
-        when(userService.createUser(any(UserCreateRequestDto.class), eq(99L)))
+        when(userService.createCustomer(any(UserCreateRequestDto.class), eq(99L)))
             .thenReturn(response);
 
-        mockMvc.perform(post("/api/users")
+        mockMvc.perform(post("/api/users/register")
                 .with(authentication(adminAuth(99L)))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
             .andExpect(status().isCreated())
-            .andExpect(jsonPath("$.firstName").value("John"));
+            .andExpect(jsonPath("$.firstName").value("Jane"))
+            .andExpect(jsonPath("$.email").value("jane@example.com"))
+            .andExpect(jsonPath("$.role").value("USER"));
     }
 
     @Test
-    void create_shouldReturn403_whenUserRole() throws Exception {
+    void register_shouldReturn403_whenUserRole() throws Exception {
 
         UserCreateRequestDto request = new UserCreateRequestDto(
-            1L, "John", "Doe", "09171234567", "123 Main St"
+            "jane@example.com", "password123", "Jane", "Doe", "09171234567", "123 Main St"
         );
 
-        mockMvc.perform(post("/api/users")
+        mockMvc.perform(post("/api/users/register")
                 .with(authentication(userAuth(1L)))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
             .andExpect(status().isForbidden());
 
-        verify(userService, never()).createUser(any(), any());
+        verify(userService, never()).createCustomer(any(), any());
     }
 
     @Test
-    void create_shouldReturn401_whenUnauthenticated() throws Exception {
+    void register_shouldReturn401_whenUnauthenticated() throws Exception {
 
         UserCreateRequestDto request = new UserCreateRequestDto(
-            1L, "John", "Doe", "09171234567", "123 Main St"
+            "jane@example.com", "password123", "Jane", "Doe", "09171234567", "123 Main St"
         );
 
-        mockMvc.perform(post("/api/users")
+        mockMvc.perform(post("/api/users/register")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
             .andExpect(status().isUnauthorized());
     }
 
     @Test
-    void create_shouldReturn404_whenAppUserNotFound() throws Exception {
+    void register_shouldReturn409_whenEmailAlreadyTaken() throws Exception {
 
         UserCreateRequestDto request = new UserCreateRequestDto(
-            1L, "John", "Doe", "09171234567", "123 Main St"
+            "jane@example.com", "password123", "Jane", "Doe", "09171234567", "123 Main St"
         );
 
-        when(userService.createUser(any(UserCreateRequestDto.class), eq(99L)))
-            .thenThrow(new ResourceNotFoundException("AppUser not found"));
+        when(userService.createCustomer(any(UserCreateRequestDto.class), eq(99L)))
+            .thenThrow(new DuplicateResourceException("Email already in use"));
 
-        mockMvc.perform(post("/api/users")
-                .with(authentication(adminAuth(99L)))
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request)))
-            .andExpect(status().isNotFound());
-    }
-
-    @Test
-    void create_shouldReturn409_whenProfileAlreadyExists() throws Exception {
-
-        UserCreateRequestDto request = new UserCreateRequestDto(
-            1L, "John", "Doe", "09171234567", "123 Main St"
-        );
-
-        when(userService.createUser(any(UserCreateRequestDto.class), eq(99L)))
-            .thenThrow(new DuplicateResourceException("User profile already exists"));
-
-        mockMvc.perform(post("/api/users")
+        mockMvc.perform(post("/api/users/register")
                 .with(authentication(adminAuth(99L)))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
@@ -170,19 +156,35 @@ public class UserControllerTests {
     }
 
     @Test
-    void create_shouldReturn400_whenPhoneNumberInvalid() throws Exception {
+    void register_shouldReturn400_whenPhoneNumberInvalid() throws Exception {
 
         UserCreateRequestDto request = new UserCreateRequestDto(
-            1L, "John", "Doe", "12345", "123 Main St"
+            "jane@example.com", "password123", "Jane", "Doe", "12345", "123 Main St"
         );
 
-        mockMvc.perform(post("/api/users")
+        mockMvc.perform(post("/api/users/register")
                 .with(authentication(adminAuth(99L)))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
             .andExpect(status().isBadRequest());
 
-        verify(userService, never()).createUser(any(), any());
+        verify(userService, never()).createCustomer(any(), any());
+    }
+
+    @Test
+    void register_shouldReturn400_whenEmailMissing() throws Exception {
+
+        UserCreateRequestDto request = new UserCreateRequestDto(
+            "", "password123", "Jane", "Doe", "09171234567", "123 Main St"
+        );
+
+        mockMvc.perform(post("/api/users/register")
+                .with(authentication(adminAuth(99L)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isBadRequest());
+
+        verify(userService, never()).createCustomer(any(), any());
     }
 
 
@@ -240,7 +242,6 @@ public class UserControllerTests {
         UserResponseDto response = new UserResponseDto(
             1L, "John", "Doe", "09171234567", "123 Main St", 1L
         );
-
         Page<UserResponseDto> page = new PageImpl<>(List.of(response));
 
         when(userService.getAllUsers(any(Pageable.class))).thenReturn(page);
@@ -269,17 +270,17 @@ public class UserControllerTests {
     }
 
 
-    // ===================== UPDATE =====================
+    // ===================== UPDATE (self-service: phone + address only) =====================
 
     @Test
     void update_shouldReturn200_whenOwner() throws Exception {
 
-        UserUpdateRequestDto request = new UserUpdateRequestDto(
-            "NewFirst", "NewLast", "09179999999", "New Address"
-        );
+        UserUpdateRequestDto request = new UserUpdateRequestDto();
+        request.setPhoneNumber("09179999999");
+        request.setAddress("New Address");
 
         UserResponseDto response = new UserResponseDto(
-            1L, "NewFirst", "NewLast", "09179999999", "New Address", 5L
+            1L, "John", "Doe", "09179999999", "New Address", 5L
         );
 
         when(userService.updateUser(eq(1L), any(UserUpdateRequestDto.class), eq(5L), eq(false)))
@@ -290,18 +291,18 @@ public class UserControllerTests {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.firstName").value("NewFirst"));
+            .andExpect(jsonPath("$.phoneNumber").value("09179999999"));
     }
 
     @Test
     void update_shouldReturn200_whenAdmin() throws Exception {
 
-        UserUpdateRequestDto request = new UserUpdateRequestDto(
-            "NewFirst", "NewLast", "09179999999", "New Address"
-        );
+        UserUpdateRequestDto request = new UserUpdateRequestDto();
+        request.setPhoneNumber("09179999999");
+        request.setAddress("New Address");
 
         UserResponseDto response = new UserResponseDto(
-            1L, "NewFirst", "NewLast", "09179999999", "New Address", 5L
+            1L, "John", "Doe", "09179999999", "New Address", 5L
         );
 
         when(userService.updateUser(eq(1L), any(UserUpdateRequestDto.class), eq(99L), eq(true)))
@@ -315,11 +316,11 @@ public class UserControllerTests {
     }
 
     @Test
-    void update_shouldReturn403_whenNotOwnerAndNotAdmin() throws Exception {
+    void update_shouldReturn403_whenNotOwner() throws Exception {
 
-        UserUpdateRequestDto request = new UserUpdateRequestDto(
-            "NewFirst", "NewLast", "09179999999", "New Address"
-        );
+        UserUpdateRequestDto request = new UserUpdateRequestDto();
+        request.setPhoneNumber("09179999999");
+        request.setAddress("New Address");
 
         when(userService.updateUser(eq(1L), any(UserUpdateRequestDto.class), eq(999L), eq(false)))
             .thenThrow(new UnauthorizedActionException("You do not own this profile"));
@@ -332,24 +333,11 @@ public class UserControllerTests {
     }
 
     @Test
-    void update_shouldReturn401_whenUnauthenticated() throws Exception {
-
-        UserUpdateRequestDto request = new UserUpdateRequestDto(
-            "NewFirst", "NewLast", "09179999999", "New Address"
-        );
-
-        mockMvc.perform(put("/api/users/1")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request)))
-            .andExpect(status().isUnauthorized());
-    }
-
-    @Test
     void update_shouldReturn404_whenNotFound() throws Exception {
 
-        UserUpdateRequestDto request = new UserUpdateRequestDto(
-            "NewFirst", "NewLast", "09179999999", "New Address"
-        );
+        UserUpdateRequestDto request = new UserUpdateRequestDto();
+        request.setPhoneNumber("09179999999");
+        request.setAddress("New Address");
 
         when(userService.updateUser(eq(1L), any(UserUpdateRequestDto.class), eq(5L), eq(false)))
             .thenThrow(new ResourceNotFoundException("User not found"));
@@ -364,9 +352,9 @@ public class UserControllerTests {
     @Test
     void update_shouldReturn400_whenPhoneNumberInvalid() throws Exception {
 
-        UserUpdateRequestDto request = new UserUpdateRequestDto(
-            "NewFirst", "NewLast", "12345", "New Address"
-        );
+        UserUpdateRequestDto request = new UserUpdateRequestDto();
+        request.setPhoneNumber("12345");
+        request.setAddress("New Address");
 
         mockMvc.perform(put("/api/users/1")
                 .with(authentication(userAuth(5L)))
@@ -375,6 +363,91 @@ public class UserControllerTests {
             .andExpect(status().isBadRequest());
 
         verify(userService, never()).updateUser(any(), any(), any(), anyBoolean());
+    }
+
+    @Test
+    void update_shouldReturn401_whenUnauthenticated() throws Exception {
+
+        UserUpdateRequestDto request = new UserUpdateRequestDto();
+        request.setPhoneNumber("09179999999");
+        request.setAddress("New Address");
+
+        mockMvc.perform(put("/api/users/1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isUnauthorized());
+    }
+
+
+    // ===================== UPDATE BY ADMIN (all fields including names) =====================
+
+    @Test
+    void updateByAdmin_shouldReturn200_whenAdmin() throws Exception {
+
+        AdminUserUpdateRequestDto request = new AdminUserUpdateRequestDto(
+            "NewFirst", "NewLast", "09179999999", "New Address"
+        );
+
+        UserResponseDto response = new UserResponseDto(
+            1L, "NewFirst", "NewLast", "09179999999", "New Address", 5L
+        );
+
+        when(userService.updateUserByAdmin(eq(1L), any(AdminUserUpdateRequestDto.class), eq(99L)))
+            .thenReturn(response);
+
+        mockMvc.perform(put("/api/users/1/admin")
+                .with(authentication(adminAuth(99L)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.firstName").value("NewFirst"))
+            .andExpect(jsonPath("$.lastName").value("NewLast"));
+    }
+
+    @Test
+    void updateByAdmin_shouldReturn403_whenUserRole() throws Exception {
+
+        AdminUserUpdateRequestDto request = new AdminUserUpdateRequestDto(
+            "NewFirst", "NewLast", "09179999999", "New Address"
+        );
+
+        mockMvc.perform(put("/api/users/1/admin")
+                .with(authentication(userAuth(1L)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isForbidden());
+
+        verify(userService, never()).updateUserByAdmin(any(), any(), any());
+    }
+
+    @Test
+    void updateByAdmin_shouldReturn404_whenNotFound() throws Exception {
+
+        AdminUserUpdateRequestDto request = new AdminUserUpdateRequestDto(
+            "NewFirst", "NewLast", "09179999999", "New Address"
+        );
+
+        when(userService.updateUserByAdmin(eq(1L), any(AdminUserUpdateRequestDto.class), eq(99L)))
+            .thenThrow(new ResourceNotFoundException("User not found"));
+
+        mockMvc.perform(put("/api/users/1/admin")
+                .with(authentication(adminAuth(99L)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void updateByAdmin_shouldReturn401_whenUnauthenticated() throws Exception {
+
+        AdminUserUpdateRequestDto request = new AdminUserUpdateRequestDto(
+            "NewFirst", "NewLast", "09179999999", "New Address"
+        );
+
+        mockMvc.perform(put("/api/users/1/admin")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isUnauthorized());
     }
 
 

@@ -1,6 +1,6 @@
 # Banking System REST API
 
-A fully featured banking REST API built with Spring Boot, featuring JWT authentication, role-based access control, audit logging, and comprehensive transaction management.
+A fully featured banking REST API built with Spring Boot, featuring JWT authentication, role-based access control, audit logging, and comprehensive transaction management. Includes a Python analytics microservice for credit scoring, fraud detection, portfolio analysis, and savings predictions.
 
 ---
 
@@ -22,8 +22,12 @@ A fully featured banking REST API built with Spring Boot, featuring JWT authenti
 - **Admin Management** — Create and manage admin profiles with staff codes
 - **Bank Accounts** — Create, freeze, unfreeze, and close accounts (max 3 per user)
 - **Transactions** — Deposit, withdraw, and transfer with full history per account
+- **Transaction Filtering** — Filter transaction history by type, date range, and amount
+- **Account Filtering** — Filter accounts by status for both user and admin views
 - **Transfer Tracking** — Cross-linked `TRANSFER_OUT` / `TRANSFER_IN` records with `relatedTransactionId`
 - **Audit Logging** — Every admin action is logged with timestamp and target user
+- **Audit Log Filtering** — Filter audit logs by action type and date range
+- **Analytics Microservice** — Python/FastAPI service for transaction insights, credit scoring, fraud detection, portfolio analysis, and savings predictions
 - **Global Exception Handling** — Typed exceptions mapped to proper HTTP status codes
 - **Input Validation** — Jakarta validation on all request DTOs
 - **Pagination** — All list endpoints support `?page=0&size=20`
@@ -32,6 +36,8 @@ A fully featured banking REST API built with Spring Boot, featuring JWT authenti
 ---
 
 ## Tech Stack
+
+### Banking API (Java)
 
 | Layer | Technology |
 |---|---|
@@ -45,9 +51,20 @@ A fully featured banking REST API built with Spring Boot, featuring JWT authenti
 | Build | Maven |
 | Frontend | Vite + React *(in progress)* |
 
+### Analytics Microservice (Python)
+
+| Layer | Technology |
+|---|---|
+| Language | Python |
+| Framework | FastAPI |
+| Data Processing | Pandas, NumPy |
+| Validation | Pydantic |
+
 ---
 
 ## Project Structure
+
+### Banking API
 
 ```
 src/
@@ -55,6 +72,7 @@ src/
 │   ├── controller/        # REST controllers
 │   ├── services/          # Business logic
 │   ├── repository/        # Spring Data JPA repositories
+│   ├── specification/     # JPA Specifications for dynamic filtering
 │   ├── model/
 │   │   ├── entities/      # JPA entities
 │   │   └── enums/         # Role, AccountStatus, TransactionType, ActionType
@@ -64,8 +82,18 @@ src/
 │   ├── exception/         # Custom exceptions + GlobalExceptionHandler
 │   ├── security/          # JWTService, JWTAuthFilter, SecurityConfig, SecurityUtil
 │   ├── config/            # OpenAPI config
-│   └── util/              # PasswordUtil
+│   └── util/              # PasswordUtil, AuthorizationUtil
 └── test/                  # Integration and unit tests
+```
+
+### Analytics Microservice
+
+```
+analytics/
+├── models/                # Pydantic request/response models
+├── routers/               # FastAPI route definitions
+├── services/              # Business logic
+└── tests/                 # Unit tests
 ```
 
 ---
@@ -109,7 +137,8 @@ src/
 |---|---|---|---|
 | POST | `/api/accounts` | ADMIN | Create bank account |
 | GET | `/api/accounts/{id}` | ADMIN, USER (own) | Get account by ID |
-| GET | `/api/accounts/users/{id}` | ADMIN, USER | Get accounts by user |
+| GET | `/api/accounts/users/{id}?status=` | ADMIN, USER | Get accounts by user, optionally filtered by status |
+| GET | `/api/accounts?status=` | ADMIN | Get all accounts, optionally filtered by status |
 | PUT | `/api/accounts/{id}/freeze` | ADMIN | Freeze account |
 | PUT | `/api/accounts/{id}/unfreeze` | ADMIN | Unfreeze account |
 | PUT | `/api/accounts/{id}/close` | ADMIN | Close account |
@@ -120,15 +149,26 @@ src/
 | POST | `/api/transactions/deposit` | USER | Deposit to account |
 | POST | `/api/transactions/withdraw` | USER | Withdraw from account |
 | POST | `/api/transactions/transfer` | USER | Transfer between accounts |
-| GET | `/api/transactions/account/{id}` | ADMIN, USER (own) | Get transaction history |
+| GET | `/api/transactions/account/{id}?type=&from=&to=&minAmount=&maxAmount=` | ADMIN, USER (own) | Get transaction history with optional filters |
 
 ### Audit Logs
 | Method | Endpoint | Access | Description |
 |---|---|---|---|
 | GET | `/api/audit-logs` | ADMIN | Get all logs (paginated) |
 | GET | `/api/audit-logs/{id}` | ADMIN | Get log by ID |
-| GET | `/api/audit-logs/admin/{adminId}` | ADMIN | Get logs by admin |
+| GET | `/api/audit-logs/admin/{adminId}?action=&from=&to=` | ADMIN | Get logs by admin with optional filters |
 | GET | `/api/audit-logs/user/{userId}` | ADMIN | Get logs by target user |
+
+### Analytics Microservice
+
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/analytics/transactions/insights` | Transaction summary, monthly cash flow, and type breakdown |
+| POST | `/analytics/transactions/trends` | Monthly savings trend and spending direction |
+| POST | `/analytics/credit-score` | Credit score (400–850) with breakdown and loan eligibility |
+| POST | `/analytics/detect` | Fraud detection with risk level and flagged transactions |
+| POST | `/analytics/performance` | Portfolio gain/loss, diversification score, and risk level |
+| POST | `/analytics/savings` | Savings forecast at 3, 6, and 12 months |
 
 ---
 
@@ -138,8 +178,9 @@ src/
 - Java 17+
 - MySQL 8
 - Maven
+- Python 3.10+ *(for analytics microservice)*
 
-### Setup
+### Banking API Setup
 
 1. **Clone the repository**
 ```bash
@@ -170,15 +211,38 @@ jwt.secret=yoursecretkeyatleast32characterslong
 http://localhost:8080/swagger-ui/index.html
 ```
 
+### Analytics Microservice Setup
+
+1. **Navigate to the analytics directory**
+```bash
+cd analytics
+```
+
+2. **Install dependencies**
+```bash
+pip install -r requirements.txt
+```
+
+3. **Run the service**
+```bash
+uvicorn main:app --reload
+```
+
 ---
 
 ## Running Tests
 
+### Banking API
 ```bash
 ./mvnw test
 ```
 
 Tests use an H2 in-memory database and do not require MySQL to be running.
+
+### Analytics Microservice
+```bash
+pytest
+```
 
 ---
 

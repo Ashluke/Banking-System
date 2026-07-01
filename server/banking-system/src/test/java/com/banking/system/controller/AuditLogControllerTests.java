@@ -27,6 +27,7 @@ import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.*;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
@@ -59,17 +60,13 @@ public class AuditLogControllerTests {
 
     private UsernamePasswordAuthenticationToken userAuth(Long appUserId) {
         return new UsernamePasswordAuthenticationToken(
-            appUserId,
-            null,
-            List.of(new SimpleGrantedAuthority("ROLE_USER"))
+            appUserId, null, List.of(new SimpleGrantedAuthority("ROLE_USER"))
         );
     }
 
     private UsernamePasswordAuthenticationToken adminAuth(Long appUserId) {
         return new UsernamePasswordAuthenticationToken(
-            appUserId,
-            null,
-            List.of(new SimpleGrantedAuthority("ROLE_ADMIN"))
+            appUserId, null, List.of(new SimpleGrantedAuthority("ROLE_ADMIN"))
         );
     }
 
@@ -128,7 +125,6 @@ public class AuditLogControllerTests {
         AuditLogResponseDto response = new AuditLogResponseDto(
             1L, 1L, 2L, ActionType.CREATE_ADMIN, LocalDateTime.now()
         );
-
         Page<AuditLogResponseDto> page = new PageImpl<>(List.of(response));
 
         when(auditLogService.getAll(any(Pageable.class))).thenReturn(page);
@@ -157,23 +153,59 @@ public class AuditLogControllerTests {
     }
 
 
-    // ===================== GET BY ADMIN ID =====================
+    // ===================== GET BY ADMIN ID (with filters) =====================
 
     @Test
-    void getByAdminId_shouldReturn200_whenAdmin() throws Exception {
+    void getByAdminId_shouldReturn200_withNoFilters() throws Exception {
 
         AuditLogResponseDto response = new AuditLogResponseDto(
             1L, 1L, 2L, ActionType.CREATE_ADMIN, LocalDateTime.now()
         );
-
         Page<AuditLogResponseDto> page = new PageImpl<>(List.of(response));
 
-        when(auditLogService.getByAdminId(eq(1L), any(Pageable.class))).thenReturn(page);
+        when(auditLogService.getByAdminId(eq(1L), isNull(), isNull(), isNull(), any(Pageable.class)))
+            .thenReturn(page);
 
         mockMvc.perform(get("/api/audit-logs/admin/1")
                 .with(authentication(adminAuth(99L))))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.content[0].adminId").value(1L));
+    }
+
+    @Test
+    void getByAdminId_shouldReturn200_withActionTypeFilter() throws Exception {
+
+        AuditLogResponseDto response = new AuditLogResponseDto(
+            1L, 1L, 2L, ActionType.CREATE_USER, LocalDateTime.now()
+        );
+        Page<AuditLogResponseDto> page = new PageImpl<>(List.of(response));
+
+        when(auditLogService.getByAdminId(eq(1L), eq(ActionType.CREATE_USER), isNull(), isNull(), any(Pageable.class)))
+            .thenReturn(page);
+
+        mockMvc.perform(get("/api/audit-logs/admin/1")
+                .param("action", "CREATE_USER")
+                .with(authentication(adminAuth(99L))))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.content[0].action").value("CREATE_USER"));
+    }
+
+    @Test
+    void getByAdminId_shouldReturn200_withDateRangeFilter() throws Exception {
+
+        AuditLogResponseDto response = new AuditLogResponseDto(
+            1L, 1L, 2L, ActionType.DELETE_USER, LocalDateTime.now()
+        );
+        Page<AuditLogResponseDto> page = new PageImpl<>(List.of(response));
+
+        when(auditLogService.getByAdminId(eq(1L), isNull(), any(LocalDateTime.class), any(LocalDateTime.class), any(Pageable.class)))
+            .thenReturn(page);
+
+        mockMvc.perform(get("/api/audit-logs/admin/1")
+                .param("from", "2025-01-01T00:00:00")
+                .param("to", "2025-12-31T23:59:59")
+                .with(authentication(adminAuth(99L))))
+            .andExpect(status().isOk());
     }
 
     @Test
@@ -183,7 +215,7 @@ public class AuditLogControllerTests {
                 .with(authentication(userAuth(1L))))
             .andExpect(status().isForbidden());
 
-        verify(auditLogService, never()).getByAdminId(any(), any());
+        verify(auditLogService, never()).getByAdminId(any(), any(), any(), any(), any());
     }
 
     @Test
@@ -202,7 +234,6 @@ public class AuditLogControllerTests {
         AuditLogResponseDto response = new AuditLogResponseDto(
             1L, 1L, 2L, ActionType.CREATE_ADMIN, LocalDateTime.now()
         );
-
         Page<AuditLogResponseDto> page = new PageImpl<>(List.of(response));
 
         when(auditLogService.getByTargetAppUserId(eq(2L), any(Pageable.class))).thenReturn(page);

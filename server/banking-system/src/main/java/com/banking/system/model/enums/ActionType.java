@@ -18,5 +18,12 @@ public enum ActionType {
 
     DEPOSIT,
     WITHDRAW,
-    TRANSFER
+    TRANSFER,
+
+    ADD_CO_OWNER,
+    REMOVE_CO_OWNER,
+
+    APPROVE_LOAN,
+    REJECT_LOAN,
+    DISBURSE_LOAN
 }

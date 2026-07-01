@@ -2,6 +2,7 @@ package com.banking.system.controller;
 
 import com.banking.system.dto.request.AdminCreateRequestDto;
 import com.banking.system.dto.request.AdminUpdateRequestDto;
+import com.banking.system.dto.response.AdminRegisterResponseDto;
 import com.banking.system.dto.response.AdminResponseDto;
 import com.banking.system.security.SecurityUtil;
 import com.banking.system.services.AdminService;
@@ -25,9 +26,9 @@ public class AdminController {
     }
 
     @PreAuthorize("hasRole('ADMIN')")
-    @PostMapping
+    @PostMapping("/register")
     @ResponseStatus(HttpStatus.CREATED)
-    public AdminResponseDto create(@Valid @RequestBody AdminCreateRequestDto request) {
+    public AdminRegisterResponseDto register(@Valid @RequestBody AdminCreateRequestDto request) {
 
         Long appUserId = SecurityUtil.getCurrentUserId();
 
@@ -41,7 +42,7 @@ public class AdminController {
     }
 
     @PreAuthorize("hasRole('ADMIN')")
-    @GetMapping()
+    @GetMapping
     public Page<AdminResponseDto> getAll(Pageable pageable) {
         return adminService.getAllAdmins(pageable);
     }

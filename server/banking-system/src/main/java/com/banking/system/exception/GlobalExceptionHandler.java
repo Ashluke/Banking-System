@@ -3,6 +3,7 @@ package com.banking.system.exception;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.security.access.AccessDeniedException;
 
 import java.time.LocalDateTime;
@@ -119,7 +120,6 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<ErrorResponse> handleAccessDenied(AccessDeniedException ex) {
-
         return buildResponse(
             HttpStatus.FORBIDDEN, 
             "Forbidden", 
@@ -141,6 +141,15 @@ public class GlobalExceptionHandler {
             HttpStatus.BAD_REQUEST, 
             "Validation error", 
             message
+        );
+    }
+
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<ErrorResponse> handleMissingParams(MissingServletRequestParameterException ex) {
+        return buildResponse(
+            HttpStatus.BAD_REQUEST, 
+            "Bad request", 
+            ex.getMessage()
         );
     }
 }

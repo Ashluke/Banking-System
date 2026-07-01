@@ -9,10 +9,14 @@ import com.banking.system.model.enums.ActionType;
 import com.banking.system.repository.AdminRepository;
 import com.banking.system.repository.AuditLogRepository;
 import com.banking.system.repository.AppUserRepository;
+import com.banking.system.specification.AuditLogSpecification;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
+
+import java.time.LocalDateTime;
 
 @Service
 public class AuditLogService {
@@ -21,7 +25,9 @@ public class AuditLogService {
     private final AdminRepository adminRepository;
     private final AppUserRepository appUserRepository;
 
-    public AuditLogService(AuditLogRepository auditLogRepository, AdminRepository adminRepository, AppUserRepository appUserRepository) {
+    public AuditLogService(AuditLogRepository auditLogRepository,
+            AdminRepository adminRepository,
+            AppUserRepository appUserRepository) {
         this.auditLogRepository = auditLogRepository;
         this.adminRepository = adminRepository;
         this.appUserRepository = appUserRepository;
@@ -59,10 +65,21 @@ public class AuditLogService {
             .map(this::mapToResponse);
     }
 
-    // Get by admin
-    public Page<AuditLogResponseDto> getByAdminId(Long adminAppUserId, Pageable pageable) {
+    // Get by admin with filters
+    public Page<AuditLogResponseDto> getByAdminId(
+            Long adminAppUserId,
+            ActionType action,
+            LocalDateTime from,
+            LocalDateTime to,
+            Pageable pageable) {
 
-        return auditLogRepository.findByAdmin_AppUser_Id(adminAppUserId, pageable)
+        Specification<AuditLog> spec = Specification
+            .where(AuditLogSpecification.hasAdminAppUserId(adminAppUserId))
+            .and(AuditLogSpecification.hasAction(action))
+            .and(AuditLogSpecification.afterDate(from))
+            .and(AuditLogSpecification.beforeDate(to));
+
+        return auditLogRepository.findAll(spec, pageable)
             .map(this::mapToResponse);
     }
 

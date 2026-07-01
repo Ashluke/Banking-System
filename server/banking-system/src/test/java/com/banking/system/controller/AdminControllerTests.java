@@ -2,9 +2,11 @@ package com.banking.system.controller;
 
 import com.banking.system.dto.request.AdminCreateRequestDto;
 import com.banking.system.dto.request.AdminUpdateRequestDto;
+import com.banking.system.dto.response.AdminRegisterResponseDto;
 import com.banking.system.dto.response.AdminResponseDto;
 import com.banking.system.exception.DuplicateResourceException;
 import com.banking.system.exception.ResourceNotFoundException;
+import com.banking.system.model.enums.Role;
 import com.banking.system.security.JWTService;
 import com.banking.system.security.SecurityConfig;
 import com.banking.system.services.AdminService;
@@ -27,6 +29,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -65,47 +68,51 @@ public class AdminControllerTests {
 
     private UsernamePasswordAuthenticationToken userAuth(Long appUserId) {
         return new UsernamePasswordAuthenticationToken(
-            appUserId,
-            null,
-            List.of(new SimpleGrantedAuthority("ROLE_USER"))
+            appUserId, null, List.of(new SimpleGrantedAuthority("ROLE_USER"))
         );
     }
 
     private UsernamePasswordAuthenticationToken adminAuth(Long appUserId) {
         return new UsernamePasswordAuthenticationToken(
-            appUserId,
-            null,
-            List.of(new SimpleGrantedAuthority("ROLE_ADMIN"))
+            appUserId, null, List.of(new SimpleGrantedAuthority("ROLE_ADMIN"))
         );
     }
 
 
-    // ===================== CREATE =====================
+    // ===================== REGISTER (combined AppUser + Admin) =====================
 
     @Test
-    void create_shouldReturn201_whenAdmin() throws Exception {
+    void register_shouldReturn201_whenAdmin() throws Exception {
 
-        AdminCreateRequestDto request = new AdminCreateRequestDto(1L, "STAFF001", "John", "Doe");
+        AdminCreateRequestDto request = new AdminCreateRequestDto(
+            "john@example.com", "password123", "STAFF001", "John", "Doe"
+        );
 
-        AdminResponseDto response = new AdminResponseDto(1L, "STAFF001", "John", "Doe", 1L);
+        AdminRegisterResponseDto response = new AdminRegisterResponseDto(
+            1L, "STAFF001", "John", "Doe", 1L, "john@example.com", Role.ADMIN, LocalDateTime.now()
+        );
 
         when(adminService.createAdmin(any(AdminCreateRequestDto.class), eq(99L)))
             .thenReturn(response);
 
-        mockMvc.perform(post("/api/admins")
+        mockMvc.perform(post("/api/admins/register")
                 .with(authentication(adminAuth(99L)))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
             .andExpect(status().isCreated())
-            .andExpect(jsonPath("$.staffCode").value("STAFF001"));
+            .andExpect(jsonPath("$.staffCode").value("STAFF001"))
+            .andExpect(jsonPath("$.email").value("john@example.com"))
+            .andExpect(jsonPath("$.role").value("ADMIN"));
     }
 
     @Test
-    void create_shouldReturn403_whenUserRole() throws Exception {
+    void register_shouldReturn403_whenUserRole() throws Exception {
 
-        AdminCreateRequestDto request = new AdminCreateRequestDto(1L, "STAFF001", "John", "Doe");
+        AdminCreateRequestDto request = new AdminCreateRequestDto(
+            "john@example.com", "password123", "STAFF001", "John", "Doe"
+        );
 
-        mockMvc.perform(post("/api/admins")
+        mockMvc.perform(post("/api/admins/register")
                 .with(authentication(userAuth(1L)))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
@@ -115,40 +122,29 @@ public class AdminControllerTests {
     }
 
     @Test
-    void create_shouldReturn401_whenUnauthenticated() throws Exception {
+    void register_shouldReturn401_whenUnauthenticated() throws Exception {
 
-        AdminCreateRequestDto request = new AdminCreateRequestDto(1L, "STAFF001", "John", "Doe");
+        AdminCreateRequestDto request = new AdminCreateRequestDto(
+            "john@example.com", "password123", "STAFF001", "John", "Doe"
+        );
 
-        mockMvc.perform(post("/api/admins")
+        mockMvc.perform(post("/api/admins/register")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
             .andExpect(status().isUnauthorized());
     }
 
     @Test
-    void create_shouldReturn404_whenAppUserNotFound() throws Exception {
+    void register_shouldReturn409_whenEmailAlreadyTaken() throws Exception {
 
-        AdminCreateRequestDto request = new AdminCreateRequestDto(1L, "STAFF001", "John", "Doe");
-
-        when(adminService.createAdmin(any(AdminCreateRequestDto.class), eq(99L)))
-            .thenThrow(new ResourceNotFoundException("AppUser not found"));
-
-        mockMvc.perform(post("/api/admins")
-                .with(authentication(adminAuth(99L)))
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request)))
-            .andExpect(status().isNotFound());
-    }
-
-    @Test
-    void create_shouldReturn409_whenAdminProfileAlreadyExists() throws Exception {
-
-        AdminCreateRequestDto request = new AdminCreateRequestDto(1L, "STAFF001", "John", "Doe");
+        AdminCreateRequestDto request = new AdminCreateRequestDto(
+            "john@example.com", "password123", "STAFF001", "John", "Doe"
+        );
 
         when(adminService.createAdmin(any(AdminCreateRequestDto.class), eq(99L)))
-            .thenThrow(new DuplicateResourceException("Admin profile already exists"));
+            .thenThrow(new DuplicateResourceException("Email already in use"));
 
-        mockMvc.perform(post("/api/admins")
+        mockMvc.perform(post("/api/admins/register")
                 .with(authentication(adminAuth(99L)))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
@@ -156,11 +152,29 @@ public class AdminControllerTests {
     }
 
     @Test
-    void create_shouldReturn400_whenStaffCodeMissing() throws Exception {
+    void register_shouldReturn400_whenEmailMissing() throws Exception {
 
-        AdminCreateRequestDto request = new AdminCreateRequestDto(1L, "", "John", "Doe");
+        AdminCreateRequestDto request = new AdminCreateRequestDto(
+            "", "password123", "STAFF001", "John", "Doe"
+        );
 
-        mockMvc.perform(post("/api/admins")
+        mockMvc.perform(post("/api/admins/register")
+                .with(authentication(adminAuth(99L)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isBadRequest());
+
+        verify(adminService, never()).createAdmin(any(), any());
+    }
+
+    @Test
+    void register_shouldReturn400_whenStaffCodeMissing() throws Exception {
+
+        AdminCreateRequestDto request = new AdminCreateRequestDto(
+            "john@example.com", "password123", "", "John", "Doe"
+        );
+
+        mockMvc.perform(post("/api/admins/register")
                 .with(authentication(adminAuth(99L)))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
@@ -220,7 +234,6 @@ public class AdminControllerTests {
     void getAll_shouldReturn200_whenAdmin() throws Exception {
 
         AdminResponseDto response = new AdminResponseDto(1L, "STAFF001", "John", "Doe", 1L);
-
         Page<AdminResponseDto> page = new PageImpl<>(List.of(response));
 
         when(adminService.getAllAdmins(any(Pageable.class))).thenReturn(page);
@@ -255,7 +268,6 @@ public class AdminControllerTests {
     void update_shouldReturn200_whenAdmin() throws Exception {
 
         AdminUpdateRequestDto request = new AdminUpdateRequestDto("NEW001", "NewFirst", "NewLast");
-
         AdminResponseDto response = new AdminResponseDto(1L, "NEW001", "NewFirst", "NewLast", 1L);
 
         when(adminService.updateAdmin(eq(1L), any(AdminUpdateRequestDto.class), eq(99L)))
@@ -299,17 +311,6 @@ public class AdminControllerTests {
     }
 
     @Test
-    void update_shouldReturn401_whenUnauthenticated() throws Exception {
-
-        AdminUpdateRequestDto request = new AdminUpdateRequestDto("NEW001", "NewFirst", "NewLast");
-
-        mockMvc.perform(put("/api/admins/1")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request)))
-            .andExpect(status().isUnauthorized());
-    }
-
-    @Test
     void update_shouldReturn400_whenFirstNameMissing() throws Exception {
 
         AdminUpdateRequestDto request = new AdminUpdateRequestDto("NEW001", "", "NewLast");
@@ -321,6 +322,17 @@ public class AdminControllerTests {
             .andExpect(status().isBadRequest());
 
         verify(adminService, never()).updateAdmin(any(), any(), any());
+    }
+
+    @Test
+    void update_shouldReturn401_whenUnauthenticated() throws Exception {
+
+        AdminUpdateRequestDto request = new AdminUpdateRequestDto("NEW001", "NewFirst", "NewLast");
+
+        mockMvc.perform(put("/api/admins/1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isUnauthorized());
     }
 
 

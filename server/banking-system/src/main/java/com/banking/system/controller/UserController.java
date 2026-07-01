@@ -1,7 +1,9 @@
 package com.banking.system.controller;
 
+import com.banking.system.dto.request.AdminUserUpdateRequestDto;
 import com.banking.system.dto.request.UserCreateRequestDto;
 import com.banking.system.dto.request.UserUpdateRequestDto;
+import com.banking.system.dto.response.UserRegisterResponseDto;
 import com.banking.system.dto.response.UserResponseDto;
 import com.banking.system.security.SecurityUtil;
 import com.banking.system.services.UserService;
@@ -25,13 +27,13 @@ public class UserController {
     }
 
     @PreAuthorize("hasRole('ADMIN')")
-    @PostMapping
+    @PostMapping("/register")
     @ResponseStatus(HttpStatus.CREATED)
-    public UserResponseDto create(@Valid @RequestBody UserCreateRequestDto request) {
+    public UserRegisterResponseDto register(@Valid @RequestBody UserCreateRequestDto request) {
 
         Long appUserId = SecurityUtil.getCurrentUserId();
 
-        return userService.createUser(request, appUserId);
+        return userService.createCustomer(request, appUserId);
     }
 
     @PreAuthorize("hasRole('ADMIN')")
@@ -46,6 +48,7 @@ public class UserController {
         return userService.getAllUsers(pageable);
     }
 
+    // User self-service — phone and address only
     @PreAuthorize("hasAnyRole('USER','ADMIN')")
     @PutMapping("/{id}")
     public UserResponseDto update(@PathVariable Long id, @Valid @RequestBody UserUpdateRequestDto request) {
@@ -54,6 +57,16 @@ public class UserController {
         boolean isAdmin = SecurityUtil.isAdmin();
 
         return userService.updateUser(id, request, appUserId, isAdmin);
+    }
+
+    // Admin full update — can change names too
+    @PreAuthorize("hasRole('ADMIN')")
+    @PutMapping("/{id}/admin")
+    public UserResponseDto updateByAdmin(@PathVariable Long id, @Valid @RequestBody AdminUserUpdateRequestDto request) {
+
+        Long appUserId = SecurityUtil.getCurrentUserId();
+
+        return userService.updateUserByAdmin(id, request, appUserId);
     }
 
     @PreAuthorize("hasRole('ADMIN')")

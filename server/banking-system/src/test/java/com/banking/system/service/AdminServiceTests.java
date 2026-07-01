@@ -2,6 +2,7 @@ package com.banking.system.service;
 
 import com.banking.system.dto.request.AdminCreateRequestDto;
 import com.banking.system.dto.request.AdminUpdateRequestDto;
+import com.banking.system.dto.response.AdminRegisterResponseDto;
 import com.banking.system.dto.response.AdminResponseDto;
 import com.banking.system.dto.response.AuditLogResponseDto;
 import com.banking.system.exception.DuplicateResourceException;
@@ -9,6 +10,7 @@ import com.banking.system.exception.ResourceNotFoundException;
 import com.banking.system.model.entities.Admin;
 import com.banking.system.model.entities.AppUser;
 import com.banking.system.model.enums.ActionType;
+import com.banking.system.model.enums.Role;
 import com.banking.system.repository.AdminRepository;
 import com.banking.system.repository.AppUserRepository;
 import com.banking.system.services.AdminService;
@@ -48,73 +50,63 @@ public class AdminServiceTests {
     private AdminService adminService;
 
 
-    // Create admin success
+    // ===================== CREATE ADMIN =====================
+
     @Test
-    void createAdmin_shouldCreateAdmin_whenAppUserExists_andNoExistingAdmin() {
+    void createAdmin_shouldCreateAppUserAndAdmin_whenEmailNotTaken() {
 
-        AppUser appUser = mock(AppUser.class);
-        when(appUser.getId()).thenReturn(1L);
+        when(appUserRepository.existsByEmail("john@example.com")).thenReturn(false);
 
-        when(appUserRepository.findById(1L)).thenReturn(Optional.of(appUser));
+        AppUser savedAppUser = mock(AppUser.class);
+        when(savedAppUser.getId()).thenReturn(1L);
+        when(savedAppUser.getEmail()).thenReturn("john@example.com");
+        when(savedAppUser.getRole()).thenReturn(Role.ADMIN);
+        when(savedAppUser.getCreatedAt()).thenReturn(LocalDateTime.now());
 
-        when(adminRepository.existsByAppUser_Id(1L)).thenReturn(false);
-
+        when(appUserRepository.save(any(AppUser.class))).thenReturn(savedAppUser);
         when(adminRepository.save(any(Admin.class))).thenAnswer(i -> i.getArgument(0));
 
         when(auditLogService.logAction(eq(99L), eq(1L), eq(ActionType.CREATE_ADMIN)))
             .thenReturn(new AuditLogResponseDto(1L, 99L, 1L, ActionType.CREATE_ADMIN, LocalDateTime.now()));
 
-        AdminCreateRequestDto request = new AdminCreateRequestDto(1L, "STAFF001", "John", "Doe");
+        AdminCreateRequestDto request = new AdminCreateRequestDto(
+            "john@example.com", "password123", "STAFF001", "John", "Doe"
+        );
 
-        AdminResponseDto result = adminService.createAdmin(request, 99L);
+        AdminRegisterResponseDto result = adminService.createAdmin(request, 99L);
 
         assertEquals("STAFF001", result.getStaffCode());
         assertEquals("John", result.getFirstName());
         assertEquals("Doe", result.getLastName());
+        assertEquals("john@example.com", result.getEmail());
+        assertEquals(Role.ADMIN, result.getRole());
 
+        verify(appUserRepository, times(1)).save(any(AppUser.class));
         verify(adminRepository, times(1)).save(any(Admin.class));
-        verify(auditLogService, times(1))
-            .logAction(eq(99L), eq(1L), eq(ActionType.CREATE_ADMIN));
+        verify(auditLogService, times(1)).logAction(eq(99L), eq(1L), eq(ActionType.CREATE_ADMIN));
     }
 
-    // Create admin - AppUser not found
     @Test
-    void createAdmin_shouldThrowException_whenAppUserNotFound() {
+    void createAdmin_shouldThrowException_whenEmailAlreadyTaken() {
 
-        when(appUserRepository.findById(1L)).thenReturn(Optional.empty());
+        when(appUserRepository.existsByEmail("john@example.com")).thenReturn(true);
 
-        AdminCreateRequestDto request = new AdminCreateRequestDto(1L, "STAFF001", "John", "Doe");
-
-        assertThrows(ResourceNotFoundException.class, () ->
-            adminService.createAdmin(request, 99L)
+        AdminCreateRequestDto request = new AdminCreateRequestDto(
+            "john@example.com", "password123", "STAFF001", "John", "Doe"
         );
-
-        verify(adminRepository, never()).save(any());
-        verify(auditLogService, never()).logAction(any(), any(), any());
-    }
-
-    // Create admin - already exists
-    @Test
-    void createAdmin_shouldThrowException_whenAdminProfileAlreadyExists() {
-
-        AppUser appUser = mock(AppUser.class);
-        when(appUser.getId()).thenReturn(1L);
-
-        when(appUserRepository.findById(1L)).thenReturn(Optional.of(appUser));
-
-        when(adminRepository.existsByAppUser_Id(1L)).thenReturn(true);
-
-        AdminCreateRequestDto request = new AdminCreateRequestDto(1L, "STAFF001", "John", "Doe");
 
         assertThrows(DuplicateResourceException.class, () ->
             adminService.createAdmin(request, 99L)
         );
 
+        verify(appUserRepository, never()).save(any());
         verify(adminRepository, never()).save(any());
         verify(auditLogService, never()).logAction(any(), any(), any());
     }
 
-    // Get by id success
+
+    // ===================== GET BY ID =====================
+
     @Test
     void getAdminById_shouldReturnAdmin_whenFound() {
 
@@ -131,7 +123,6 @@ public class AdminServiceTests {
         assertEquals(1L, result.getAppUserId());
     }
 
-    // Get by id not found
     @Test
     void getAdminById_shouldThrowException_whenNotFound() {
 
@@ -142,7 +133,9 @@ public class AdminServiceTests {
         );
     }
 
-    // Get all
+
+    // ===================== GET ALL =====================
+
     @Test
     void getAllAdmins_shouldReturnPagedAdmins() {
 
@@ -159,7 +152,9 @@ public class AdminServiceTests {
         assertEquals(1, result.getTotalElements());
     }
 
-    // Update admin success
+
+    // ===================== UPDATE =====================
+
     @Test
     void updateAdmin_shouldModifyAdmin_andLogAction() {
 
@@ -169,7 +164,6 @@ public class AdminServiceTests {
         Admin admin = new Admin(appUser, "OLD001", "OldFirst", "OldLast");
 
         when(adminRepository.findById(1L)).thenReturn(Optional.of(admin));
-
         when(adminRepository.save(any(Admin.class))).thenAnswer(i -> i.getArgument(0));
 
         when(auditLogService.logAction(eq(99L), eq(1L), eq(ActionType.UPDATE_ADMIN)))
@@ -183,11 +177,9 @@ public class AdminServiceTests {
         assertEquals("NewFirst", result.getFirstName());
         assertEquals("NewLast", result.getLastName());
 
-        verify(auditLogService, times(1))
-            .logAction(eq(99L), eq(1L), eq(ActionType.UPDATE_ADMIN));
+        verify(auditLogService, times(1)).logAction(eq(99L), eq(1L), eq(ActionType.UPDATE_ADMIN));
     }
 
-    // Update admin not found
     @Test
     void updateAdmin_shouldThrowException_whenNotFound() {
 
@@ -203,7 +195,9 @@ public class AdminServiceTests {
         verify(auditLogService, never()).logAction(any(), any(), any());
     }
 
-    // Delete admin success
+
+    // ===================== DELETE =====================
+
     @Test
     void deleteAdmin_shouldRemoveAdmin_andLogAction() {
 
@@ -220,11 +214,9 @@ public class AdminServiceTests {
         adminService.deleteAdmin(1L, 99L);
 
         verify(adminRepository, times(1)).delete(admin);
-        verify(auditLogService, times(1))
-            .logAction(eq(99L), eq(1L), eq(ActionType.DELETE_ADMIN));
+        verify(auditLogService, times(1)).logAction(eq(99L), eq(1L), eq(ActionType.DELETE_ADMIN));
     }
 
-    // Delete admin not found
     @Test
     void deleteAdmin_shouldThrowException_whenNotFound() {
 

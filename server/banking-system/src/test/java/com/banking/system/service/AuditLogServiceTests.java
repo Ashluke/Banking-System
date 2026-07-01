@@ -19,7 +19,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -44,7 +46,8 @@ public class AuditLogServiceTests {
     private AuditLogService auditLogService;
 
 
-    // Log action success
+    // ===================== LOG ACTION =====================
+
     @Test
     void logAction_shouldCreateAuditLog_whenAdminAndTargetExist() {
 
@@ -56,7 +59,6 @@ public class AuditLogServiceTests {
 
         when(adminRepository.findByAppUser_Id(10L)).thenReturn(Optional.of(admin));
         when(appUserRepository.findById(2L)).thenReturn(Optional.of(targetAppUser));
-
         when(auditLogRepository.save(any(AuditLog.class))).thenAnswer(i -> i.getArgument(0));
 
         AuditLogResponseDto result = auditLogService.logAction(10L, 2L, ActionType.CREATE_ADMIN);
@@ -68,7 +70,6 @@ public class AuditLogServiceTests {
         verify(auditLogRepository, times(1)).save(any(AuditLog.class));
     }
 
-    // Log action - admin not found
     @Test
     void logAction_shouldThrowException_whenAdminNotFound() {
 
@@ -81,7 +82,6 @@ public class AuditLogServiceTests {
         verify(auditLogRepository, never()).save(any());
     }
 
-    // Log action - target app user not found
     @Test
     void logAction_shouldThrowException_whenTargetAppUserNotFound() {
 
@@ -97,7 +97,9 @@ public class AuditLogServiceTests {
         verify(auditLogRepository, never()).save(any());
     }
 
-    // Get by id success
+
+    // ===================== GET BY ID =====================
+
     @Test
     void getById_shouldReturnAuditLog_whenFound() {
 
@@ -118,7 +120,6 @@ public class AuditLogServiceTests {
         assertEquals(ActionType.UPDATE_ADMIN, result.getAction());
     }
 
-    // Get by id not found
     @Test
     void getById_shouldThrowException_whenNotFound() {
 
@@ -129,7 +130,9 @@ public class AuditLogServiceTests {
         );
     }
 
-    // Get all
+
+    // ===================== GET ALL =====================
+
     @Test
     void getAll_shouldReturnPagedAuditLogs() {
 
@@ -149,9 +152,12 @@ public class AuditLogServiceTests {
         assertEquals(1, result.getTotalElements());
     }
 
-    // Get by admin id
+
+    // ===================== GET BY ADMIN ID (with filters) =====================
+
+    @SuppressWarnings("unchecked")
     @Test
-    void getByAdminId_shouldReturnPagedAuditLogs() {
+    void getByAdminId_shouldReturnPagedAuditLogs_withNoFilters() {
 
         Admin admin = mock(Admin.class);
         when(admin.getId()).thenReturn(1L);
@@ -161,17 +167,71 @@ public class AuditLogServiceTests {
 
         AuditLog auditLog = new AuditLog(admin, targetAppUser, ActionType.UPDATE_ADMIN);
 
-        when(auditLogRepository.findByAdmin_AppUser_Id(eq(10L), any(Pageable.class)))
+        when(auditLogRepository.findAll(any(Specification.class), any(Pageable.class)))
             .thenReturn(new PageImpl<>(List.of(auditLog)));
 
-        Page<AuditLogResponseDto> result = auditLogService.getByAdminId(10L, Pageable.unpaged());
+        Page<AuditLogResponseDto> result = auditLogService.getByAdminId(
+            10L, null, null, null, Pageable.unpaged()
+        );
 
         assertEquals(1, result.getTotalElements());
         verify(auditLogRepository, times(1))
-            .findByAdmin_AppUser_Id(eq(10L), any(Pageable.class));
+            .findAll(any(Specification.class), any(Pageable.class));
     }
 
-    // Get by target app user id
+    @SuppressWarnings("unchecked")
+    @Test
+    void getByAdminId_shouldFilterByActionType() {
+
+        Admin admin = mock(Admin.class);
+        when(admin.getId()).thenReturn(1L);
+
+        AppUser targetAppUser = mock(AppUser.class);
+        when(targetAppUser.getId()).thenReturn(2L);
+
+        AuditLog auditLog = new AuditLog(admin, targetAppUser, ActionType.CREATE_USER);
+
+        when(auditLogRepository.findAll(any(Specification.class), any(Pageable.class)))
+            .thenReturn(new PageImpl<>(List.of(auditLog)));
+
+        Page<AuditLogResponseDto> result = auditLogService.getByAdminId(
+            10L, ActionType.CREATE_USER, null, null, Pageable.unpaged()
+        );
+
+        assertEquals(1, result.getTotalElements());
+        assertEquals(ActionType.CREATE_USER, result.getContent().get(0).getAction());
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void getByAdminId_shouldFilterByDateRange() {
+
+        Admin admin = mock(Admin.class);
+        when(admin.getId()).thenReturn(1L);
+
+        AppUser targetAppUser = mock(AppUser.class);
+        when(targetAppUser.getId()).thenReturn(2L);
+
+        AuditLog auditLog = new AuditLog(admin, targetAppUser, ActionType.DELETE_USER);
+
+        LocalDateTime from = LocalDateTime.now().minusDays(7);
+        LocalDateTime to = LocalDateTime.now();
+
+        when(auditLogRepository.findAll(any(Specification.class), any(Pageable.class)))
+            .thenReturn(new PageImpl<>(List.of(auditLog)));
+
+        Page<AuditLogResponseDto> result = auditLogService.getByAdminId(
+            10L, null, from, to, Pageable.unpaged()
+        );
+
+        assertEquals(1, result.getTotalElements());
+        verify(auditLogRepository, times(1))
+            .findAll(any(Specification.class), any(Pageable.class));
+    }
+
+
+    // ===================== GET BY TARGET APP USER ID =====================
+
     @Test
     void getByTargetAppUserId_shouldReturnPagedAuditLogs() {
 

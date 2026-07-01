@@ -39,6 +39,8 @@ import java.util.List;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.*;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
@@ -71,20 +73,15 @@ public class TransactionControllerTests {
     }
 
 
-    // Helper: build an auth token with a Long principal, mimicking JWTAuthFilter
     private UsernamePasswordAuthenticationToken userAuth(Long appUserId) {
         return new UsernamePasswordAuthenticationToken(
-            appUserId,
-            null,
-            List.of(new SimpleGrantedAuthority("ROLE_USER"))
+            appUserId, null, List.of(new SimpleGrantedAuthority("ROLE_USER"))
         );
     }
 
     private UsernamePasswordAuthenticationToken adminAuth(Long appUserId) {
         return new UsernamePasswordAuthenticationToken(
-            appUserId,
-            null,
-            List.of(new SimpleGrantedAuthority("ROLE_ADMIN"))
+            appUserId, null, List.of(new SimpleGrantedAuthority("ROLE_ADMIN"))
         );
     }
 
@@ -336,19 +333,21 @@ public class TransactionControllerTests {
     }
 
 
-    // ===================== GET BY ACCOUNT ID =====================
+    // ===================== GET BY ACCOUNT ID (with filters) =====================
 
     @Test
-    void getByAccountId_shouldReturn200_whenUserRole() throws Exception {
+    void getByAccountId_shouldReturn200_withNoFilters_whenUserRole() throws Exception {
 
         TransactionResponseDto tx = new TransactionResponseDto(
             1L, 1L, BigDecimal.valueOf(100.0), TransactionType.DEPOSIT, LocalDateTime.now()
         );
-
         Page<TransactionResponseDto> page = new PageImpl<>(List.of(tx));
 
-        when(transactionService.getByAccountId(anyLong(), anyLong(), anyBoolean(), any(Pageable.class)))
-            .thenReturn(page);
+        when(transactionService.getByAccountId(
+            anyLong(), anyLong(), anyBoolean(),
+            isNull(), isNull(), isNull(), isNull(), isNull(),
+            any(Pageable.class)
+        )).thenReturn(page);
 
         mockMvc.perform(get("/api/transactions/account/1")
                 .with(authentication(userAuth(1L))))
@@ -357,16 +356,81 @@ public class TransactionControllerTests {
     }
 
     @Test
+    void getByAccountId_shouldReturn200_withTypeFilter() throws Exception {
+
+        TransactionResponseDto tx = new TransactionResponseDto(
+            1L, 1L, BigDecimal.valueOf(100.0), TransactionType.WITHDRAW, LocalDateTime.now()
+        );
+        Page<TransactionResponseDto> page = new PageImpl<>(List.of(tx));
+
+        when(transactionService.getByAccountId(
+            anyLong(), anyLong(), anyBoolean(),
+            eq(TransactionType.WITHDRAW), isNull(), isNull(), isNull(), isNull(),
+            any(Pageable.class)
+        )).thenReturn(page);
+
+        mockMvc.perform(get("/api/transactions/account/1")
+                .param("type", "WITHDRAW")
+                .with(authentication(userAuth(1L))))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.content[0].type").value("WITHDRAW"));
+    }
+
+    @Test
+    void getByAccountId_shouldReturn200_withDateRangeFilter() throws Exception {
+
+        TransactionResponseDto tx = new TransactionResponseDto(
+            1L, 1L, BigDecimal.valueOf(100.0), TransactionType.DEPOSIT, LocalDateTime.now()
+        );
+        Page<TransactionResponseDto> page = new PageImpl<>(List.of(tx));
+
+        when(transactionService.getByAccountId(
+            anyLong(), anyLong(), anyBoolean(),
+            isNull(), any(LocalDateTime.class), any(LocalDateTime.class), isNull(), isNull(),
+            any(Pageable.class)
+        )).thenReturn(page);
+
+        mockMvc.perform(get("/api/transactions/account/1")
+                .param("from", "2025-01-01T00:00:00")
+                .param("to", "2025-12-31T23:59:59")
+                .with(authentication(userAuth(1L))))
+            .andExpect(status().isOk());
+    }
+
+    @Test
+    void getByAccountId_shouldReturn200_withAmountRangeFilter() throws Exception {
+
+        TransactionResponseDto tx = new TransactionResponseDto(
+            1L, 1L, BigDecimal.valueOf(500.0), TransactionType.DEPOSIT, LocalDateTime.now()
+        );
+        Page<TransactionResponseDto> page = new PageImpl<>(List.of(tx));
+
+        when(transactionService.getByAccountId(
+            anyLong(), anyLong(), anyBoolean(),
+            isNull(), isNull(), isNull(), any(BigDecimal.class), any(BigDecimal.class),
+            any(Pageable.class)
+        )).thenReturn(page);
+
+        mockMvc.perform(get("/api/transactions/account/1")
+                .param("minAmount", "100.00")
+                .param("maxAmount", "1000.00")
+                .with(authentication(userAuth(1L))))
+            .andExpect(status().isOk());
+    }
+
+    @Test
     void getByAccountId_shouldReturn200_whenAdminRole() throws Exception {
 
         TransactionResponseDto tx = new TransactionResponseDto(
             1L, 1L, BigDecimal.valueOf(100.0), TransactionType.DEPOSIT, LocalDateTime.now()
         );
-
         Page<TransactionResponseDto> page = new PageImpl<>(List.of(tx));
 
-        when(transactionService.getByAccountId(anyLong(), anyLong(), anyBoolean(), any(Pageable.class)))
-            .thenReturn(page);
+        when(transactionService.getByAccountId(
+            anyLong(), anyLong(), anyBoolean(),
+            isNull(), isNull(), isNull(), isNull(), isNull(),
+            any(Pageable.class)
+        )).thenReturn(page);
 
         mockMvc.perform(get("/api/transactions/account/1")
                 .with(authentication(adminAuth(99L))))
@@ -376,8 +440,11 @@ public class TransactionControllerTests {
     @Test
     void getByAccountId_shouldReturn403_whenNotOwner() throws Exception {
 
-        when(transactionService.getByAccountId(anyLong(), anyLong(), anyBoolean(), any(Pageable.class)))
-            .thenThrow(new UnauthorizedActionException("You do not own this account"));
+        when(transactionService.getByAccountId(
+            anyLong(), anyLong(), anyBoolean(),
+            isNull(), isNull(), isNull(), isNull(), isNull(),
+            any(Pageable.class)
+        )).thenThrow(new UnauthorizedActionException("You do not own this account"));
 
         mockMvc.perform(get("/api/transactions/account/1")
                 .with(authentication(userAuth(999L))))
@@ -387,8 +454,11 @@ public class TransactionControllerTests {
     @Test
     void getByAccountId_shouldReturn404_whenAccountNotFound() throws Exception {
 
-        when(transactionService.getByAccountId(anyLong(), anyLong(), anyBoolean(), any(Pageable.class)))
-            .thenThrow(new ResourceNotFoundException("Account not found"));
+        when(transactionService.getByAccountId(
+            anyLong(), anyLong(), anyBoolean(),
+            isNull(), isNull(), isNull(), isNull(), isNull(),
+            any(Pageable.class)
+        )).thenThrow(new ResourceNotFoundException("Account not found"));
 
         mockMvc.perform(get("/api/transactions/account/1")
                 .with(authentication(userAuth(1L))))
